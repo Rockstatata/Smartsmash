@@ -1,0 +1,6 @@
+# Agent specific configurations
+minimax:
+  depth: 3
+
+mcts:
+  simulations: 1000

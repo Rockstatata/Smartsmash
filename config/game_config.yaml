@@ -1,0 +1,4 @@
+# Game configuration settings
+court_dimensions:
+  length: 13.4
+  width: 6.1
