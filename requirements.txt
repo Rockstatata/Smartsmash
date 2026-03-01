@@ -1,3 +1,5 @@
 numpy
 pyyaml
 matplotlib
+fastapi
+uvicorn[standard]
