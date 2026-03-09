@@ -1,7 +1,32 @@
+@import "tailwindcss";
+
 /* ═══════════════════════════════════════════════════════════
-   SmartSmash — Midnight Luxe Theme Styles
-   Custom CSS extending Tailwind CDN configuration
+   SmartSmash — Tailwind CSS v4 Theme + Custom Styles
    ═══════════════════════════════════════════════════════════ */
+
+@theme {
+  --color-obsidian: #0D0D12;
+  --color-obsidian-light: #15151D;
+  --color-champagne: #C9A84C;
+  --color-champagne-dark: #A8893D;
+  --color-ivory: #FAF8F5;
+  --color-ivory-muted: #B8B5AE;
+  --color-slate: #2A2A35;
+  --color-slate-light: #3A3A48;
+
+  --font-heading: 'Inter', sans-serif;
+  --font-drama: 'Playfair Display', serif;
+  --font-data: 'JetBrains Mono', monospace;
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-blink: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 
 /* ─── Base & Reset ───────────────────────────────────────── */
 *, *::before, *::after {
@@ -74,7 +99,7 @@ body {
 
 
 /* ─── Hero ───────────────────────────────────────────────── */
-#hero::after {
+.hero-section::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -100,11 +125,11 @@ body {
 }
 
 /* Telemetry feed styling */
-#telemetry-feed {
+.telemetry-feed {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-#telemetry-feed::-webkit-scrollbar {
+.telemetry-feed::-webkit-scrollbar {
   display: none;
 }
 
@@ -209,20 +234,20 @@ body {
 
 
 /* ─── Game Canvas ────────────────────────────────────────── */
-#game-canvas {
+.game-canvas-el {
   display: block;
   image-rendering: crisp-edges;
 }
 
-#action-log {
+.action-log {
   scrollbar-width: thin;
   scrollbar-color: #2A2A35 transparent;
 }
 
-#action-log::-webkit-scrollbar {
+.action-log::-webkit-scrollbar {
   width: 3px;
 }
-#action-log::-webkit-scrollbar-thumb {
+.action-log::-webkit-scrollbar-thumb {
   background: #2A2A35;
   border-radius: 2px;
 }
@@ -244,47 +269,47 @@ body {
 
 
 /* ─── Leaderboard Table ──────────────────────────────────── */
-#leaderboard-table th {
+.leaderboard-table th {
   user-select: none;
 }
 
-#leaderboard-table th:hover {
+.leaderboard-table th:hover {
   color: #C9A84C;
 }
 
-#leaderboard-table th.sort-active {
+.leaderboard-table th.sort-active {
   color: #C9A84C;
 }
 
-#leaderboard-table th.sort-active::after {
+.leaderboard-table th.sort-active::after {
   content: ' ▾';
   font-size: 0.6em;
 }
 
-#leaderboard-table th.sort-active.sort-asc::after {
+.leaderboard-table th.sort-active.sort-asc::after {
   content: ' ▴';
 }
 
-#leaderboard-body tr {
+.leaderboard-body tr {
   transition: background-color 0.2s ease;
 }
 
-#leaderboard-body tr:hover {
+.leaderboard-body tr:hover {
   background-color: rgba(201, 168, 76, 0.03);
 }
 
 
 /* ─── Auth Modal ─────────────────────────────────────────── */
-#auth-modal .auth-tab {
+.auth-tab {
   transition: color 0.3s ease, border-color 0.3s ease;
 }
 
-#auth-modal .auth-tab.active {
+.auth-tab.active {
   color: #FAF8F5;
   border-color: #C9A84C;
 }
 
-#auth-modal input:focus {
+.auth-input:focus {
   box-shadow: 0 0 0 2px rgba(201, 168, 76, 0.15);
 }
 
