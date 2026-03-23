@@ -2,42 +2,33 @@ import { useState, useMemo, useEffect } from 'react';
 import { getLeaderboard, USE_API } from '../services/api';
 
 /**
- * Default leaderboard data used when the API is unavailable.
- * Demonstrates the three classical AI agents under comparison.
- */
-const defaultData = [
-  {
-    rank: 1, name: 'Minimax', elo: 1847, winrate: 72.5,
-    points: 2450, matches: 48, color: '#4A9EFF',
-    description: 'Depth-limited search with alpha-beta pruning',
-  },
-  {
-    rank: 2, name: 'MCTS', elo: 1792, winrate: 65.8,
-    points: 2180, matches: 48, color: '#A855F7',
-    description: 'Monte Carlo Tree Search with UCT selection',
-  },
-  {
-    rank: 3, name: 'Fuzzy', elo: 1685, winrate: 52.1,
-    points: 1720, matches: 48, color: '#4ade80',
-    description: 'Fuzzy logic rule-based inference system',
-  },
-];
-
-/**
  * Leaderboard section — Full Sortable Agent Ranking Table.
  */
 export default function Leaderboard() {
-  const [data, setData] = useState(() => JSON.parse(JSON.stringify(defaultData)));
+  const [data, setData] = useState([]);
   const [sort, setSort] = useState({ field: 'elo', asc: false });
+  const [isLoading, setIsLoading] = useState(USE_API);
+  const [loadError, setLoadError] = useState(
+    USE_API ? null : 'API is disabled. Leaderboard requires backend connectivity.',
+  );
 
-  // Try to load from API on mount (skip if disabled)
   useEffect(() => {
     if (!USE_API) return;
-    getLeaderboard().then((apiData) => {
-      if (apiData && Array.isArray(apiData) && apiData.length > 0) {
-        setData(apiData);
-      }
-    });
+
+    getLeaderboard()
+      .then((apiData) => {
+        if (apiData && Array.isArray(apiData) && apiData.length > 0) {
+          setData(apiData);
+        } else {
+          setData([]);
+        }
+      })
+      .catch((error) => {
+        setLoadError(error?.message || 'Failed to load leaderboard.');
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   const sortedData = useMemo(() => {
@@ -106,6 +97,20 @@ export default function Leaderboard() {
                 </tr>
               </thead>
               <tbody className="leaderboard-body">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={columns.length} className="px-6 py-10 text-center text-sm text-ivory-muted">
+                      Loading leaderboard...
+                    </td>
+                  </tr>
+                ) : null}
+                {!isLoading && sortedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={columns.length} className="px-6 py-10 text-center text-sm text-ivory-muted">
+                      No leaderboard entries available yet.
+                    </td>
+                  </tr>
+                ) : null}
                 {sortedData.map((agent) => {
                   const winrateColor = getWinrateColor(agent.winrate);
                   return (
@@ -153,6 +158,9 @@ export default function Leaderboard() {
             </table>
           </div>
         </div>
+        {loadError ? (
+          <p className="mt-4 text-xs text-amber-300/90 font-data">{loadError}</p>
+        ) : null}
       </div>
     </section>
   );
