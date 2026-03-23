@@ -6,7 +6,24 @@ import { Menu, X } from 'lucide-react';
  * Fixed pill-shaped navbar with scroll morphing, nav links,
  * CTA button, and responsive mobile menu drawer.
  */
-export default function Navbar({ onOpenAuth }) {
+const DEFAULT_NAV_LINKS = [
+  { id: 'arena', href: '#arena', label: 'Arena' },
+  { id: 'agents', href: '#agents', label: 'Agents' },
+  { id: 'leaderboard', href: '#leaderboard', label: 'Leaderboard' },
+  { id: 'history', href: '#history', label: 'History' },
+];
+
+export default function Navbar({
+  onOpenAuth,
+  currentUser,
+  onSignOut,
+  navLinks = DEFAULT_NAV_LINKS,
+  activeLink = null,
+  onNavSelect = null,
+  ctaLabel = null,
+  onCtaClick = null,
+  showUserEmail = true,
+}) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const toggleMobile = useCallback(() => {
@@ -28,12 +45,26 @@ export default function Navbar({ onOpenAuth }) {
     return () => document.removeEventListener('keydown', handler);
   }, [closeMobile]);
 
-  const navLinks = [
-    { href: '#arena', label: 'Arena' },
-    { href: '#agents', label: 'Agents' },
-    { href: '#leaderboard', label: 'Leaderboard' },
-    { href: '#history', label: 'History' },
-  ];
+  const resolvedCtaLabel = ctaLabel || (currentUser ? 'Sign Out' : 'Enter the Arena');
+  const handleCta = onCtaClick || (currentUser ? onSignOut : onOpenAuth);
+
+  const isLinkActive = useCallback((link) => {
+    if (!activeLink) return false;
+    const normalized = String(activeLink).toLowerCase();
+    return (
+      normalized === String(link.id || '').toLowerCase()
+      || normalized === String(link.href || '').toLowerCase()
+      || normalized === String(link.label || '').toLowerCase()
+    );
+  }, [activeLink]);
+
+  const handleNavClick = useCallback((event, link) => {
+    if (typeof onNavSelect === 'function') {
+      event.preventDefault();
+      onNavSelect(link);
+    }
+    if (mobileOpen) closeMobile();
+  }, [closeMobile, mobileOpen, onNavSelect]);
 
   return (
     <>
@@ -51,9 +82,10 @@ export default function Navbar({ onOpenAuth }) {
         <div className="hidden md:flex items-center gap-6 text-sm text-ivory-muted">
           {navLinks.map((link) => (
             <a
-              key={link.href}
-              href={link.href}
-              className="nav-link hover:text-ivory transition-colors duration-300"
+              key={link.id || link.href}
+              href={link.href || '#'}
+              onClick={(event) => handleNavClick(event, link)}
+              className={`nav-link hover:text-ivory transition-colors duration-300 ${isLinkActive(link) ? 'text-ivory nav-link-active' : ''}`}
             >
               {link.label}
             </a>
@@ -61,12 +93,20 @@ export default function Navbar({ onOpenAuth }) {
         </div>
 
         {/* CTA */}
-        <button
-          className="ml-auto px-5 py-2 bg-champagne text-obsidian text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
-          onClick={onOpenAuth}
-        >
-          Enter the Arena
-        </button>
+        {handleCta ? (
+          <button
+            className="ml-auto px-5 py-2 bg-champagne text-obsidian text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
+            onClick={handleCta}
+          >
+            {resolvedCtaLabel}
+          </button>
+        ) : null}
+
+        {showUserEmail && currentUser?.email ? (
+          <span className="hidden lg:inline text-xs text-ivory-muted font-data whitespace-nowrap">
+            {currentUser.email}
+          </span>
+        ) : null}
 
         {/* Mobile Menu Toggle */}
         <button className="md:hidden ml-2 text-ivory" onClick={toggleMobile}>
@@ -82,20 +122,25 @@ export default function Navbar({ onOpenAuth }) {
       >
         {navLinks.map((link) => (
           <a
-            key={link.href}
-            href={link.href}
-            className="text-ivory-muted hover:text-ivory transition-colors"
-            onClick={closeMobile}
+            key={link.id || link.href}
+            href={link.href || '#'}
+            className={`text-ivory-muted hover:text-ivory transition-colors ${isLinkActive(link) ? 'text-ivory nav-link-active' : ''}`}
+            onClick={(event) => handleNavClick(event, link)}
           >
             {link.label}
           </a>
         ))}
-        <button
-          className="px-8 py-3 bg-champagne text-obsidian font-semibold rounded-full"
-          onClick={() => { onOpenAuth(); closeMobile(); }}
-        >
-          Enter the Arena
-        </button>
+        {handleCta ? (
+          <button
+            className="px-8 py-3 bg-champagne text-obsidian font-semibold rounded-full"
+            onClick={() => {
+              handleCta();
+              closeMobile();
+            }}
+          >
+            {resolvedCtaLabel}
+          </button>
+        ) : null}
         <button className="absolute top-6 right-6 text-ivory" onClick={closeMobile}>
           <X className="w-6 h-6" />
         </button>
