@@ -98,19 +98,23 @@ function sampleRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
-function roundedRect(ctx, x, y, w, h, r) {
-  if (typeof ctx.roundRect === 'function') {
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-    return;
-  }
-  ctx.beginPath();
-  ctx.rect(x, y, w, h);
-}
+export default function useGameCanvas(canvasRef, options = {}) {
+  const {
+    matchSetup = null,
+    onMatchComplete = null,
+    targetScore = 21,
+  } = options;
 
-export default function useGameCanvas(canvasRef) {
   const [hudState, setHudState] = useState(HUD_DEFAULT);
   const [actionLog, setActionLog] = useState([{ id: 0, text: '> Loading visual assets...', color: null, agent: null }]);
+  const [matchComplete, setMatchComplete] = useState(false);
+  const [matchSummary, setMatchSummary] = useState(null);
+  const [analytics, setAnalytics] = useState({
+    averageDecisionMs: 0,
+    maxDecisionMs: 0,
+    abilityActivations: { p1: 0, p2: 0 },
+    shotCounts: { smash: 0, long: 0, short: 0 },
+  });
 
   const isPlayingRef = useRef(true);
   const animFrameRef = useRef(null);
@@ -120,6 +124,18 @@ export default function useGameCanvas(canvasRef) {
   const assetCacheRef = useRef(new Map());
   const assetsReadyRef = useRef(false);
   const logIdCounter = useRef(1);
+  const onMatchCompleteRef = useRef(onMatchComplete);
+  const pauseRef = useRef(() => {});
+  const matchOptionsRef = useRef({ matchSetup, targetScore });
+  const matchFinishedRef = useRef(false);
+  const matchStartTimeRef = useRef(0);
+  const analyticsRef = useRef({
+    totalDecisionMs: 0,
+    decisionSamples: 0,
+    maxDecisionMs: 0,
+    abilityActivations: { p1: 0, p2: 0 },
+    shotCounts: { smash: 0, long: 0, short: 0 },
+  });
 
   const courtRef = useRef({ x: 0, y: 0, w: 0, h: 0, aspectRatio: 13.4 / 6.1 });
 
@@ -153,6 +169,44 @@ export default function useGameCanvas(canvasRef) {
     playerSkinIndex: 0,
     stadiumIndex: 0,
   });
+
+  useEffect(() => {
+    onMatchCompleteRef.current = onMatchComplete;
+  }, [onMatchComplete]);
+
+  useEffect(() => {
+    matchOptionsRef.current = {
+      matchSetup,
+      targetScore,
+    };
+  }, [matchSetup, targetScore]);
+
+  const resolvePlayerName = useCallback((playerKey, fallback) => {
+    const setupName = matchOptionsRef.current?.matchSetup?.players?.[playerKey]?.name;
+    if (typeof setupName === 'string' && setupName.trim().length > 0) {
+      return setupName.trim();
+    }
+    return fallback;
+  }, []);
+
+  const resolvePlayerAbility = useCallback((playerKey) => {
+    return matchOptionsRef.current?.matchSetup?.players?.[playerKey]?.ability || 'none';
+  }, []);
+
+  const resolveStrategyValue = useCallback((key, fallback = 50) => {
+    const raw = Number(matchOptionsRef.current?.matchSetup?.strategy?.[key]);
+    if (Number.isFinite(raw)) return raw;
+    return fallback;
+  }, []);
+
+  const resolveArenaIndex = useCallback(() => {
+    const selectedFile = matchOptionsRef.current?.matchSetup?.arena?.file;
+    if (typeof selectedFile === 'string' && selectedFile.trim().length > 0) {
+      const index = STADIUMS.indexOf(selectedFile);
+      if (index >= 0) return index;
+    }
+    return null;
+  }, []);
 
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
@@ -259,22 +313,37 @@ export default function useGameCanvas(canvasRef) {
   const pickShotType = useCallback((playerKey) => {
     const state = stateRef.current;
     const stamina = state[playerKey].stamina;
+    const aggression = resolveStrategyValue('aggression', 55);
+    const risk = resolveStrategyValue('risk', 45);
+    const ability = resolvePlayerAbility(playerKey);
     const roll = Math.random();
 
+    let smashChance = stamina > 65 ? 0.34 : stamina > 35 ? 0.2 : 0.08;
+    let longChance = stamina > 65 ? 0.33 : stamina > 35 ? 0.4 : 0.22;
+
+    smashChance += (aggression - 50) / 240;
+    smashChance += (risk - 50) / 300;
+    if (ability === 'super_smash') smashChance += 0.12;
+    if (ability === 'speed_burst') longChance += 0.06;
+    if (ability === 'illusion') smashChance += 0.04;
+
+    smashChance = clamp(smashChance, 0.05, 0.78);
+    longChance = clamp(longChance, 0.1, 0.75);
+
     if (stamina > 65) {
-      if (roll < 0.34) return 'smash';
-      if (roll < 0.67) return 'long';
+      if (roll < smashChance) return 'smash';
+      if (roll < smashChance + longChance) return 'long';
       return 'short';
     }
 
     if (stamina > 35) {
-      if (roll < 0.2) return 'smash';
-      if (roll < 0.6) return 'long';
+      if (roll < smashChance) return 'smash';
+      if (roll < smashChance + longChance) return 'long';
       return 'short';
     }
 
-    return roll < 0.7 ? 'short' : 'long';
-  }, []);
+    return roll < 0.65 ? 'short' : 'long';
+  }, [resolvePlayerAbility, resolveStrategyValue]);
 
   const getTargetX = useCallback((receiver, shotType) => {
     const profile = SHOT_PROFILES[shotType];
@@ -290,6 +359,7 @@ export default function useGameCanvas(canvasRef) {
     const state = stateRef.current;
     const shuttle = state.shuttle;
     const profile = SHOT_PROFILES[shotType];
+    const playerAbility = resolvePlayerAbility(from);
 
     const fromPlayer = state[from];
     const targetX = getTargetX(to, shotType);
@@ -307,6 +377,49 @@ export default function useGameCanvas(canvasRef) {
     shuttle.arc = sampleRange(profile.arc[0], profile.arc[1]);
     shuttle.shotType = shotType;
 
+    analyticsRef.current.shotCounts[shotType] += 1;
+
+    if (playerAbility === 'speed_burst' && Math.random() < 0.28) {
+      shuttle.speed *= 1.16;
+      analyticsRef.current.abilityActivations[from] += 1;
+      addActionLogEntry({
+        agent: state[from].name,
+        action: 'SPEED BURST activated',
+        color: '#facc15',
+      });
+    }
+
+    if (playerAbility === 'super_smash' && shotType === 'smash' && Math.random() < 0.35) {
+      shuttle.speed *= 1.08;
+      shuttle.arc *= 1.18;
+      analyticsRef.current.abilityActivations[from] += 1;
+      addActionLogEntry({
+        agent: state[from].name,
+        action: 'SUPER SMASH amplified',
+        color: '#f59e0b',
+      });
+    }
+
+    if (playerAbility === 'illusion' && Math.random() < 0.2) {
+      shuttle.targetX = clamp(shuttle.targetX + sampleRange(-0.04, 0.04), 0.1, 0.9);
+      analyticsRef.current.abilityActivations[from] += 1;
+      addActionLogEntry({
+        agent: state[from].name,
+        action: 'ILLUSION feint deployed',
+        color: '#60a5fa',
+      });
+    }
+
+    if (playerAbility === 'time_slow' && Math.random() < 0.24) {
+      shuttle.speed *= 0.92;
+      analyticsRef.current.abilityActivations[from] += 1;
+      addActionLogEntry({
+        agent: state[from].name,
+        action: 'TIME SLOW pulse',
+        color: '#a78bfa',
+      });
+    }
+
     state.currentTurn = to;
 
     addActionLogEntry({
@@ -314,23 +427,80 @@ export default function useGameCanvas(canvasRef) {
       action: `${shotType.toUpperCase()} shot`,
       color: from === 'p1' ? '#4A9EFF' : '#FF6B6B',
     });
-  }, [addActionLogEntry, getTargetX]);
+  }, [addActionLogEntry, getTargetX, resolvePlayerAbility]);
+
+  const buildMatchSummary = useCallback((winner) => {
+    const state = stateRef.current;
+    const decisionSamples = Math.max(1, analyticsRef.current.decisionSamples);
+    const durationSec = Math.max(1, Math.round((Date.now() - matchStartTimeRef.current) / 1000));
+
+    return {
+      winner,
+      winnerName: winner === 'p1' ? state.p1.name : state.p2.name,
+      score: { ...state.score },
+      rallyCount: state.rally,
+      durationSec,
+      averageDecisionMs: Math.round(analyticsRef.current.totalDecisionMs / decisionSamples),
+      maxDecisionMs: Math.round(analyticsRef.current.maxDecisionMs),
+      abilityActivations: { ...analyticsRef.current.abilityActivations },
+      shotCounts: { ...analyticsRef.current.shotCounts },
+      strategy: {
+        aggression: resolveStrategyValue('aggression', 55),
+        defense: resolveStrategyValue('defense', 50),
+        risk: resolveStrategyValue('risk', 45),
+        depth: resolveStrategyValue('depth', 60),
+      },
+      setupSnapshot: matchOptionsRef.current?.matchSetup
+        ? JSON.parse(JSON.stringify(matchOptionsRef.current.matchSetup))
+        : null,
+    };
+  }, [resolveStrategyValue]);
 
   const registerPoint = useCallback((winner) => {
     const state = stateRef.current;
+    const winnerName = winner === 'p1' ? state.p1.name : state.p2.name;
+    const configuredTarget = Number(matchOptionsRef.current?.targetScore || 21);
 
     state.score[winner] += 1;
     state.rally += 1;
     state.shotCount = 0;
     state.playerSkinIndex = state.rally % PLAYER_SKINS.length;
-    state.stadiumIndex = state.rally % STADIUMS.length;
+    const lockedArenaIndex = resolveArenaIndex();
+    state.stadiumIndex = lockedArenaIndex ?? (state.rally % STADIUMS.length);
 
     spawnScoreParticles(state.shuttle.x, state.shuttle.y);
     addActionLogEntry({
       agent: 'System',
-      action: `Rally ${state.rally}: point for ${winner === 'p1' ? state.p1.name : state.p2.name}`,
+      action: `Rally ${state.rally}: point for ${winnerName}`,
       color: '#C9A84C',
     });
+
+    if (state.score[winner] >= configuredTarget && !matchFinishedRef.current) {
+      matchFinishedRef.current = true;
+      state.shuttle.active = false;
+
+      const summary = buildMatchSummary(winner);
+      setMatchComplete(true);
+      setMatchSummary(summary);
+      setAnalytics({
+        averageDecisionMs: summary.averageDecisionMs,
+        maxDecisionMs: summary.maxDecisionMs,
+        abilityActivations: { ...summary.abilityActivations },
+        shotCounts: { ...summary.shotCounts },
+      });
+
+      addActionLogEntry({
+        agent: 'System',
+        action: `MATCH COMPLETE: ${summary.winnerName} wins ${summary.score.p1}-${summary.score.p2}`,
+        color: '#34d399',
+      });
+
+      pauseRef.current();
+      if (typeof onMatchCompleteRef.current === 'function') {
+        onMatchCompleteRef.current(summary);
+      }
+      return;
+    }
 
     const server = winner;
     const receiver = winner === 'p1' ? 'p2' : 'p1';
@@ -347,7 +517,7 @@ export default function useGameCanvas(canvasRef) {
     state.shuttle.trail = [];
 
     buildNextShot(server, receiver, 'long');
-  }, [addActionLogEntry, buildNextShot, spawnScoreParticles]);
+  }, [addActionLogEntry, buildMatchSummary, buildNextShot, resolveArenaIndex, spawnScoreParticles]);
 
   const updatePlayers = useCallback(() => {
     const state = stateRef.current;
@@ -437,7 +607,20 @@ export default function useGameCanvas(canvasRef) {
 
   const updateHud = useCallback(() => {
     const state = stateRef.current;
-    state.decisionTime = Math.floor(15 + Math.abs(Math.sin(timeRef.current * 0.022)) * 105);
+    state.p1.name = resolvePlayerName('p1', state.p1.name || 'Minimax');
+    state.p2.name = resolvePlayerName('p2', state.p2.name || 'MCTS');
+    const baseDecision = 15 + Math.abs(Math.sin(timeRef.current * 0.022)) * 105;
+    const p1Ability = resolvePlayerAbility('p1');
+    const p2Ability = resolvePlayerAbility('p2');
+
+    let adjustment = 0;
+    if (state.currentTurn === 'p2' && p1Ability === 'time_slow') adjustment += 12;
+    if (state.currentTurn === 'p1' && p2Ability === 'time_slow') adjustment += 12;
+
+    state.decisionTime = Math.floor(baseDecision + adjustment);
+    analyticsRef.current.totalDecisionMs += state.decisionTime;
+    analyticsRef.current.decisionSamples += 1;
+    analyticsRef.current.maxDecisionMs = Math.max(analyticsRef.current.maxDecisionMs, state.decisionTime);
 
     setHudState({
       p1Score: state.score.p1,
@@ -449,7 +632,7 @@ export default function useGameCanvas(canvasRef) {
       p1Name: state.p1.name,
       p2Name: state.p2.name,
     });
-  }, []);
+  }, [resolvePlayerAbility, resolvePlayerName]);
 
   const drawBackground = useCallback((ctx, displayW, displayH) => {
     const state = stateRef.current;
@@ -626,6 +809,7 @@ export default function useGameCanvas(canvasRef) {
 
   const update = useCallback(() => {
     if (!assetsReadyRef.current) return;
+    if (matchFinishedRef.current) return;
     updatePlayers();
     updateShuttle();
     updateParticles();
@@ -657,6 +841,10 @@ export default function useGameCanvas(canvasRef) {
     }
   }, []);
 
+  useEffect(() => {
+    pauseRef.current = pause;
+  }, [pause]);
+
   const togglePlay = useCallback(() => {
     if (isPlayingRef.current) pause();
     else play();
@@ -665,16 +853,19 @@ export default function useGameCanvas(canvasRef) {
 
   const reset = useCallback(() => {
     const state = stateRef.current;
+    const p1Name = resolvePlayerName('p1', 'Minimax');
+    const p2Name = resolvePlayerName('p2', 'MCTS');
 
     state.score.p1 = 0;
     state.score.p2 = 0;
     state.rally = 0;
     state.shotCount = 0;
     state.playerSkinIndex = 0;
-    state.stadiumIndex = 0;
+    const lockedArenaIndex = resolveArenaIndex();
+    state.stadiumIndex = lockedArenaIndex ?? 0;
 
-    state.p1 = { ...state.p1, x: 0.26, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0 };
-    state.p2 = { ...state.p2, x: 0.74, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0 };
+    state.p1 = { ...state.p1, x: 0.26, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0, name: p1Name };
+    state.p2 = { ...state.p2, x: 0.74, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0, name: p2Name };
 
     state.shuttle = {
       ...state.shuttle,
@@ -699,12 +890,33 @@ export default function useGameCanvas(canvasRef) {
     particlesRef.current = [];
     timeRef.current = 0;
     logIdCounter.current = 1;
+    matchFinishedRef.current = false;
+    matchStartTimeRef.current = Date.now();
+    analyticsRef.current = {
+      totalDecisionMs: 0,
+      decisionSamples: 0,
+      maxDecisionMs: 0,
+      abilityActivations: { p1: 0, p2: 0 },
+      shotCounts: { smash: 0, long: 0, short: 0 },
+    };
+    setMatchComplete(false);
+    setMatchSummary(null);
+    setAnalytics({
+      averageDecisionMs: 0,
+      maxDecisionMs: 0,
+      abilityActivations: { p1: 0, p2: 0 },
+      shotCounts: { smash: 0, long: 0, short: 0 },
+    });
 
-    setHudState(HUD_DEFAULT);
+    setHudState({
+      ...HUD_DEFAULT,
+      p1Name,
+      p2Name,
+    });
     setActionLog([{ id: 0, text: '> Match reset. Simulation resumed.', color: null, agent: null }]);
 
     buildNextShot('p1', 'p2', 'long');
-  }, [buildNextShot]);
+  }, [buildNextShot, resolveArenaIndex, resolvePlayerName]);
 
   useEffect(() => {
     let active = true;
@@ -714,6 +926,9 @@ export default function useGameCanvas(canvasRef) {
 
     preloadAssets().finally(() => {
       if (!active) return;
+      const lockedArenaIndex = resolveArenaIndex();
+      stateRef.current.stadiumIndex = lockedArenaIndex ?? 0;
+      matchStartTimeRef.current = Date.now();
       buildNextShot('p1', 'p2', 'long');
       isPlayingRef.current = true;
       loopRef.current();
@@ -724,13 +939,18 @@ export default function useGameCanvas(canvasRef) {
       window.removeEventListener('resize', resize);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [buildNextShot, preloadAssets, resize]);
+  }, [buildNextShot, preloadAssets, resize, resolveArenaIndex]);
 
   return {
     hudState,
     actionLog,
     togglePlay,
+    play,
+    pause,
     reset,
     isPlayingRef,
+    matchComplete,
+    matchSummary,
+    analytics,
   };
 }

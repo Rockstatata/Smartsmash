@@ -8,10 +8,11 @@ gsap.registerPlugin(ScrollTrigger);
  * Custom hook that encapsulates all GSAP ScrollTrigger and
  * entry animations, matching the original animations.js behavior.
  */
-export default function useAnimations() {
+export default function useAnimations(enabled = true) {
   const initialized = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     if (initialized.current) return;
     initialized.current = true;
 
@@ -140,5 +141,5 @@ export default function useAnimations() {
     return () => {
       ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
     };
-  }, []);
+  }, [enabled]);
 }

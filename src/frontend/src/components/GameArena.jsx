@@ -7,10 +7,32 @@ import useGameCanvas from '../hooks/useGameCanvas';
  * Contains the game canvas, HUD bar, stamina overlays,
  * decision timer, and action log panel.
  */
-export default function GameArena() {
+export default function GameArena({
+  matchSetup = null,
+  onPauseRequest = null,
+  onResumeRequest = null,
+  onMatchComplete = null,
+  isPaused = false,
+  immersive = false,
+  matchInstanceKey = 0,
+}) {
   const canvasRef = useRef(null);
   const logRef = useRef(null);
-  const { hudState, actionLog, togglePlay, reset, isPlayingRef } = useGameCanvas(canvasRef);
+  const {
+    hudState,
+    actionLog,
+    togglePlay,
+    reset,
+    play,
+    pause,
+    matchSummary,
+    analytics,
+  } = useGameCanvas(canvasRef, {
+    matchSetup,
+    onMatchComplete,
+    matchInstanceKey,
+    targetScore: 21,
+  });
 
   // Auto-scroll action log
   useEffect(() => {
@@ -26,20 +48,46 @@ export default function GameArena() {
   };
 
   const handleToggle = () => {
+    if (playState && onPauseRequest) {
+      pause();
+      setPlayState(false);
+      onPauseRequest();
+      return;
+    }
+
     const playingNow = togglePlay();
     setPlayState(playingNow);
+
+    if (!playingNow && onPauseRequest) onPauseRequest();
+    if (playingNow && onResumeRequest) onResumeRequest();
   };
 
   // Local state for button display since isPlayingRef is a ref
   const [playState, setPlayState] = useState(true);
 
+  useEffect(() => {
+    if (isPaused) {
+      pause();
+      setPlayState(false);
+      return;
+    }
+    play();
+    setPlayState(true);
+  }, [isPaused, pause, play]);
+
+  const sectionClass = immersive
+    ? 'relative'
+    : 'relative py-24 md:py-32 bg-obsidian-light/30';
+
   return (
-    <section id="game-arena" className="relative py-24 md:py-32 bg-obsidian-light/30">
+    <section id="game-arena" className={sectionClass}>
       <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-12">
-          <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Live Arena</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">Real-Time Arena</h2>
-        </div>
+        {!immersive ? (
+          <div className="text-center mb-12">
+            <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Live Arena</span>
+            <h2 className="mt-4 text-3xl md:text-5xl font-bold">Real-Time Arena</h2>
+          </div>
+        ) : null}
 
         <div className="relative">
           <div className="relative bg-obsidian border border-white/5 rounded-2xl overflow-hidden shadow-[0_0_80px_rgba(201,168,76,0.05)]">
@@ -53,6 +101,11 @@ export default function GameArena() {
                 <span className="text-xs font-data text-ivory-muted">
                   Rally #<span>{hudState.rally}</span>
                 </span>
+                {matchSetup?.mode ? (
+                  <span className="text-[10px] font-data px-2 py-0.5 rounded-full border border-white/15 text-champagne uppercase tracking-widest">
+                    {matchSetup.mode}
+                  </span>
+                ) : null}
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-center">
@@ -88,6 +141,28 @@ export default function GameArena() {
                 </button>
               </div>
             </div>
+
+            {matchSetup?.players ? (
+              <div className="px-6 py-2 border-b border-white/5 bg-obsidian-light/35 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-widest font-data">
+                {matchSetup?.arena?.name ? (
+                  <span className="text-ivory-muted">
+                    Arena: <span className="text-champagne">{matchSetup.arena.name}</span>
+                  </span>
+                ) : null}
+                <span className="text-ivory-muted">
+                  P1 Ability: <span className="text-champagne">{matchSetup.players.p1?.ability || 'none'}</span>
+                </span>
+                <span className="text-ivory-muted">
+                  P2 Ability: <span className="text-champagne">{matchSetup.players.p2?.ability || 'none'}</span>
+                </span>
+                <span className="text-ivory-muted">
+                  Aggression: <span className="text-champagne">{matchSetup.strategy?.aggression ?? 55}</span>
+                </span>
+                <span className="text-ivory-muted">
+                  Depth: <span className="text-champagne">{matchSetup.strategy?.depth ?? 60}</span>
+                </span>
+              </div>
+            ) : null}
 
             {/* Canvas + Side Panel */}
             <div className="flex flex-col lg:flex-row">
@@ -155,6 +230,29 @@ export default function GameArena() {
               </div>
             </div>
           </div>
+
+          {(matchSummary || analytics) && immersive ? (
+            <div className="mt-4 rounded-xl border border-white/10 bg-obsidian-light/40 p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-ivory-muted font-data">Winner</p>
+                <p className="text-sm font-semibold text-champagne">{matchSummary?.winnerName || '-'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-ivory-muted font-data">Avg Decision</p>
+                <p className="text-sm font-semibold text-champagne">{analytics?.averageDecisionMs ?? 0}ms</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-ivory-muted font-data">Ability Uses</p>
+                <p className="text-sm font-semibold text-champagne">
+                  {(analytics?.abilityActivations?.p1 ?? 0) + (analytics?.abilityActivations?.p2 ?? 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-ivory-muted font-data">Rallies</p>
+                <p className="text-sm font-semibold text-champagne">{matchSummary?.rallyCount ?? hudState.rally}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
