@@ -1,93 +1,77 @@
 """
-SmartSmash — FastAPI Backend Bridge
+SmartSmash - FastAPI Backend Bridge with Supabase Integration
 
-Provides a REST API that bridges the web frontend to the Python AI
-simulation engine. This server exposes endpoints for match simulation,
-agent information, leaderboard data, and match history.
-
-Architecture:
-    Frontend (HTML/JS) <--HTTP/JSON--> FastAPI <---> Python AI Engine
-
-Usage:
-    python -m src.api.server
-    OR
-    uvicorn src.api.server:app --reload --port 8000
+This server exposes game simulation endpoints and Supabase-backed
+services for authentication, database operations, and storage.
 """
 
-import copy
-import json
+from __future__ import annotations
+
+import os
+import random
+import sys
 import time
 import uuid
-import os
-import sys
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# Ensure project root is in the Python path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+from supabase import Client, create_client
 
-try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse
-    from pydantic import BaseModel
-except ImportError:
-    print("FastAPI not installed. Install with: pip install fastapi uvicorn")
-    print("Run: pip install -r requirements.txt")
-    sys.exit(1)
+# Ensure backend package folders are importable.
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_DIR.parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from typing import Optional, List, Dict, Any
-
-# Import project modules
-from src.core.game_state import GameState
-
-# Attempt to import agent and simulator modules
-# These may be stubs, so we handle gracefully
-try:
-    from src.agents.minimax.minimax_agent import MinimaxAgent
-except ImportError:
-    MinimaxAgent = None
-
-try:
-    from src.agents.mcts.mcts_agent import MCTSAgent
-except ImportError:
-    MCTSAgent = None
-
-try:
-    from src.agents.fuzzy.fuzzy_agent import FuzzyAgent
-except ImportError:
-    FuzzyAgent = None
-
-try:
-    from src.environment.simulator import Simulator
-except ImportError:
-    Simulator = None
+from core.game_state import GameState
 
 try:
     import yaml
-    CONFIG_DIR = PROJECT_ROOT / "config"
-    with open(CONFIG_DIR / "game_config.yaml", "r") as f:
-        GAME_CONFIG = yaml.safe_load(f)
-    with open(CONFIG_DIR / "agent_config.yaml", "r") as f:
-        AGENT_CONFIG = yaml.safe_load(f)
-except Exception:
-    GAME_CONFIG = {"court_dimensions": {"length": 13.4, "width": 6.1}}
-    AGENT_CONFIG = {"minimax": {"depth": 3}, "mcts": {"simulations": 1000}}
+except Exception:  # pragma: no cover
+    yaml = None
+
+load_dotenv(BACKEND_DIR / ".env")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+)
+
+supabase_public: Optional[Client] = None
+supabase_admin: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_ANON_KEY:
+    supabase_public = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
-# ═══════════════════════════════════════════════════════════
+def _model_dump(model: BaseModel) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+# ============================
 # Pydantic Schemas
-# ═══════════════════════════════════════════════════════════
+# ============================
+
 
 class MatchRequest(BaseModel):
-    """Request schema for starting a new match."""
     agent1: str
     agent2: str
 
 
 class MatchState(BaseModel):
-    """Serialized representation of the game state."""
     match_id: str
     player_pos: Optional[Dict[str, float]] = None
     opponent_pos: Optional[Dict[str, float]] = None
@@ -105,7 +89,6 @@ class MatchState(BaseModel):
 
 
 class AgentInfo(BaseModel):
-    """Metadata about an AI agent."""
     name: str
     type: str
     description: str
@@ -114,127 +97,283 @@ class AgentInfo(BaseModel):
     color: str
 
 
-class LeaderboardEntry(BaseModel):
-    """Single leaderboard row."""
-    rank: int
-    name: str
-    elo: float
-    winrate: float
-    points: int
-    matches: int
-    color: str
-    description: str
+class ProfileUpdateRequest(BaseModel):
+    username: Optional[str] = Field(default=None, min_length=2, max_length=30)
+    avatar_url: Optional[str] = None
 
 
-class MatchHistoryEntry(BaseModel):
-    """Single match history record."""
-    id: str
-    agent1: str
-    agent2: str
-    score: Dict[str, int]
-    winner: str
-    rally_count: int
-    timestamp: str
+class StorageDeleteRequest(BaseModel):
+    bucket: str
+    path: str
 
 
-# ═══════════════════════════════════════════════════════════
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+
+
+class SignUpRequest(BaseModel):
+    email: str
+    password: str
+    username: Optional[str] = Field(default=None, min_length=2, max_length=30)
+
+
+# ============================
 # Application Setup
-# ═══════════════════════════════════════════════════════════
+# ============================
 
 app = FastAPI(
     title="SmartSmash API",
-    description="Backend bridge for the SmartSmash Classical AI Competition Arena",
-    version="1.0.0"
+    description="Backend bridge for SmartSmash with Supabase integration",
+    version="2.0.0",
 )
 
-# CORS — allow the frontend to call the API
+origins = [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve the web frontend as static files
-WEB_DIR = PROJECT_ROOT / "src" / "visualization" / "web"
-CSS_DIR = WEB_DIR / "css"
-JS_DIR = WEB_DIR / "js"
+security = HTTPBearer(auto_error=False)
 
-# Mount CSS and JS subdirectories at their expected paths
-if CSS_DIR.exists():
-    app.mount("/css", StaticFiles(directory=str(CSS_DIR)), name="css")
-if JS_DIR.exists():
-    app.mount("/js", StaticFiles(directory=str(JS_DIR)), name="js")
-# General static mount for other assets
-if WEB_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+CONFIG_DIR = BACKEND_DIR / "config"
+if yaml and (CONFIG_DIR / "game_config.yaml").exists() and (CONFIG_DIR / "agent_config.yaml").exists():
+    with open(CONFIG_DIR / "game_config.yaml", "r", encoding="utf-8") as f:
+        GAME_CONFIG = yaml.safe_load(f)
+    with open(CONFIG_DIR / "agent_config.yaml", "r", encoding="utf-8") as f:
+        AGENT_CONFIG = yaml.safe_load(f)
+else:
+    GAME_CONFIG = {"court_dimensions": {"length": 13.4, "width": 6.1}}
+    AGENT_CONFIG = {"minimax": {"depth": 3}, "mcts": {"simulations": 1000}}
 
 
-# ═══════════════════════════════════════════════════════════
-# In-Memory State Stores
-# ═══════════════════════════════════════════════════════════
+# ============================
+# In-Memory Fallback State
+# ============================
 
-# Active match sessions
 active_matches: Dict[str, Dict[str, Any]] = {}
 
-# Simulated leaderboard data (replaced by real data when matches run)
 leaderboard_data: List[Dict[str, Any]] = [
     {
-        "rank": 1, "name": "Minimax", "elo": 1847, "winrate": 72.5,
-        "points": 2450, "matches": 48, "color": "#4A9EFF",
-        "description": "Depth-limited search with alpha-beta pruning"
+        "rank": 1,
+        "name": "Minimax",
+        "elo": 1847,
+        "winrate": 72.5,
+        "points": 2450,
+        "matches": 48,
+        "color": "#4A9EFF",
+        "description": "Depth-limited search with alpha-beta pruning",
     },
     {
-        "rank": 2, "name": "MCTS", "elo": 1792, "winrate": 65.8,
-        "points": 2180, "matches": 48, "color": "#A855F7",
-        "description": "Monte Carlo Tree Search with UCT selection"
+        "rank": 2,
+        "name": "MCTS",
+        "elo": 1792,
+        "winrate": 65.8,
+        "points": 2180,
+        "matches": 48,
+        "color": "#A855F7",
+        "description": "Monte Carlo Tree Search with UCT selection",
     },
     {
-        "rank": 3, "name": "Fuzzy", "elo": 1685, "winrate": 52.1,
-        "points": 1720, "matches": 48, "color": "#4ade80",
-        "description": "Fuzzy logic rule-based inference system"
+        "rank": 3,
+        "name": "Fuzzy",
+        "elo": 1685,
+        "winrate": 52.1,
+        "points": 1720,
+        "matches": 48,
+        "color": "#4ade80",
+        "description": "Fuzzy logic rule-based inference system",
     },
 ]
 
-# Match history
 match_history: List[Dict[str, Any]] = []
 
-# Agent registry
 AGENT_REGISTRY: Dict[str, AgentInfo] = {
     "minimax": AgentInfo(
         name="Minimax",
         type="minimax",
-        description="Uses depth-limited minimax search with handcrafted heuristic evaluation and optional alpha-beta pruning to select optimal actions.",
+        description="Depth-limited minimax with alpha-beta pruning.",
         algorithm="Minimax Search",
         config=AGENT_CONFIG.get("minimax", {"depth": 3}),
-        color="#4A9EFF"
+        color="#4A9EFF",
     ),
     "mcts": AgentInfo(
         name="MCTS",
         type="mcts",
-        description="Employs Monte Carlo Tree Search with UCT selection policy, stochastic rollout simulation, and configurable iteration budget.",
+        description="Monte Carlo Tree Search with UCT selection.",
         algorithm="Monte Carlo Tree Search",
         config=AGENT_CONFIG.get("mcts", {"simulations": 1000}),
-        color="#A855F7"
+        color="#A855F7",
     ),
     "fuzzy": AgentInfo(
         name="Fuzzy",
         type="fuzzy",
-        description="Applies fuzzy logic inference with explicit membership functions and a deterministic rule base for interpretable decision-making.",
+        description="Fuzzy logic rule-based inference system.",
         algorithm="Fuzzy Logic Inference",
         config={},
-        color="#4ade80"
+        color="#4ade80",
     ),
 }
 
 
-# ═══════════════════════════════════════════════════════════
-# Helper Functions
-# ═══════════════════════════════════════════════════════════
+# ============================
+# Auth / Supabase Helpers
+# ============================
+
+
+def _require_supabase_public() -> Client:
+    if not supabase_public:
+        raise HTTPException(status_code=503, detail="Supabase public client is not configured")
+    return supabase_public
+
+
+def _require_supabase_admin() -> Client:
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Supabase admin client is not configured")
+    return supabase_admin
+
+
+def _extract_user(credentials: Optional[HTTPAuthorizationCredentials]) -> Dict[str, Any]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    token = credentials.credentials
+    client = _require_supabase_public()
+    try:
+        auth_response = client.auth.get_user(token)
+        user = getattr(auth_response, "user", None)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid auth token")
+        return {
+            "id": getattr(user, "id", None),
+            "email": getattr(user, "email", None),
+            "raw": user,
+            "metadata": getattr(user, "user_metadata", {}) or {},
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Failed to validate token: {exc}") from exc
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Dict[str, Any]:
+    return _extract_user(credentials)
+
+
+def _fetch_leaderboard_from_db() -> Optional[List[Dict[str, Any]]]:
+    if not supabase_admin:
+        return None
+    try:
+        response = (
+            supabase_admin.table("leaderboard")
+            .select("name, elo, winrate, points, matches, color, description")
+            .order("elo", desc=True)
+            .execute()
+        )
+        rows = response.data or []
+        output = []
+        for idx, row in enumerate(rows, start=1):
+            output.append(
+                {
+                    "rank": idx,
+                    "name": row.get("name", "Unknown"),
+                    "elo": float(row.get("elo", 0)),
+                    "winrate": float(row.get("winrate", 0)),
+                    "points": int(row.get("points", 0)),
+                    "matches": int(row.get("matches", 0)),
+                    "color": row.get("color", "#4A9EFF"),
+                    "description": row.get("description", ""),
+                }
+            )
+        return output
+    except Exception:
+        return None
+
+
+def _fetch_history_from_db(limit: int) -> Optional[List[Dict[str, Any]]]:
+    if not supabase_admin:
+        return None
+    try:
+        response = (
+            supabase_admin.table("match_history")
+            .select("id, agent1, agent2, score, winner, rally_count, timestamp")
+            .order("timestamp", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return response.data or []
+    except Exception:
+        return None
+
+
+def _persist_match_history(record: Dict[str, Any]) -> None:
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("match_history").insert(record).execute()
+    except Exception:
+        # Keep API resilient even if db table does not exist yet.
+        pass
+
+
+def _derive_username(
+    email: Optional[str],
+    metadata: Optional[Dict[str, Any]],
+    preferred_username: Optional[str] = None,
+) -> str:
+    if preferred_username and preferred_username.strip():
+        return preferred_username.strip()[:30]
+
+    if metadata:
+        candidate = metadata.get("username")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()[:30]
+
+    if isinstance(email, str) and "@" in email:
+        return email.split("@")[0][:30]
+
+    return "challenger"
+
+
+def _upsert_profile_from_auth_user(
+    *,
+    user_id: Optional[str],
+    email: Optional[str],
+    metadata: Optional[Dict[str, Any]],
+    preferred_username: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if not user_id or not supabase_admin:
+        return None
+
+    payload = {
+        "id": user_id,
+        "username": _derive_username(email, metadata, preferred_username),
+        "avatar_url": (metadata or {}).get("avatar_url"),
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    try:
+        response = supabase_admin.table("profiles").upsert(payload).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+    except Exception:
+        # Keep auth flow resilient even if profile sync fails.
+        return None
+
+    return payload
+
+
+# ============================
+# Game Helpers
+# ============================
+
 
 def create_initial_state() -> GameState:
-    """Creates a fresh GameState with default initial values."""
     state = GameState()
     state.player_pos = {"x": 0.25, "y": 0.5}
     state.opponent_pos = {"x": 0.75, "y": 0.5}
@@ -246,8 +385,7 @@ def create_initial_state() -> GameState:
     return state
 
 
-def state_to_dict(state: GameState, match_id: str, rally: int = 0) -> dict:
-    """Converts a GameState to a JSON-serializable dictionary."""
+def state_to_dict(state: GameState, match_id: str, rally: int = 0) -> Dict[str, Any]:
     return {
         "match_id": match_id,
         "player_pos": state.player_pos,
@@ -265,58 +403,292 @@ def state_to_dict(state: GameState, match_id: str, rally: int = 0) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# API Routes
-# ═══════════════════════════════════════════════════════════
+# ============================
+# Routes
+# ============================
 
-# ─── Root / Frontend Serving ───────────────────────────────
 
 @app.get("/")
-async def root():
-    """Serves the frontend index.html."""
-    index_path = WEB_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(str(index_path))
+async def root() -> Dict[str, Any]:
+    # Keep a root endpoint for quick status checks.
     return {"message": "SmartSmash API is running", "docs": "/docs"}
 
 
-# ─── Health Check ──────────────────────────────────────────
-
 @app.get("/api/health")
-async def health_check():
-    """Returns server health status."""
+async def health_check() -> Dict[str, Any]:
+    supabase_status = "configured" if supabase_public else "missing_env"
+    if supabase_public:
+        try:
+            supabase_public.table("leaderboard").select("name").limit(1).execute()
+            supabase_status = "connected"
+        except Exception:
+            supabase_status = "configured_but_unreachable_or_missing_tables"
+
     return {
         "status": "ok",
         "timestamp": time.time(),
         "agents_available": list(AGENT_REGISTRY.keys()),
         "active_matches": len(active_matches),
+        "supabase": {
+            "url_configured": bool(SUPABASE_URL),
+            "anon_key_configured": bool(SUPABASE_ANON_KEY),
+            "service_role_configured": bool(SUPABASE_SERVICE_ROLE_KEY),
+            "status": supabase_status,
+        },
     }
 
 
-# ─── Agent Endpoints ──────────────────────────────────────
+@app.post("/api/auth/sign-up")
+async def sign_up(payload: SignUpRequest) -> Dict[str, Any]:
+    client = _require_supabase_public()
+    try:
+        options: Dict[str, Any] = {}
+        if payload.username:
+            options["data"] = {"username": payload.username}
+
+        sign_up_payload: Dict[str, Any] = {
+            "email": payload.email,
+            "password": payload.password,
+        }
+        if options:
+            sign_up_payload["options"] = options
+
+        response = client.auth.sign_up(sign_up_payload)
+        session = getattr(response, "session", None)
+        user = getattr(response, "user", None)
+        user_id = getattr(user, "id", None)
+        user_email = getattr(user, "email", None)
+        user_metadata = getattr(user, "user_metadata", {}) if user else {}
+        profile = _upsert_profile_from_auth_user(
+            user_id=user_id,
+            email=user_email,
+            metadata=user_metadata,
+            preferred_username=payload.username,
+        )
+        return {
+            "user": {
+                "id": user_id,
+                "email": user_email,
+                "metadata": user_metadata,
+            },
+            "profile": profile,
+            "session": {
+                "access_token": getattr(session, "access_token", None),
+                "refresh_token": getattr(session, "refresh_token", None),
+                "expires_in": getattr(session, "expires_in", None),
+            } if session else None,
+            "email_confirmation_required": session is None,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Sign up failed: {exc}") from exc
+
+
+@app.post("/api/auth/sign-in")
+async def sign_in(payload: SignInRequest) -> Dict[str, Any]:
+    client = _require_supabase_public()
+    try:
+        response = client.auth.sign_in_with_password(
+            {"email": payload.email, "password": payload.password}
+        )
+        session = getattr(response, "session", None)
+        user = getattr(response, "user", None)
+        if not session or not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        user_id = getattr(user, "id", None)
+        user_email = getattr(user, "email", None)
+        user_metadata = getattr(user, "user_metadata", {}) if user else {}
+        profile = _upsert_profile_from_auth_user(
+            user_id=user_id,
+            email=user_email,
+            metadata=user_metadata,
+        )
+        return {
+            "user": {
+                "id": user_id,
+                "email": user_email,
+                "metadata": user_metadata,
+            },
+            "profile": profile,
+            "session": {
+                "access_token": session.access_token,
+                "refresh_token": session.refresh_token,
+                "expires_in": session.expires_in,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Sign in failed: {exc}") from exc
+
+
+@app.get("/api/auth/me")
+async def get_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    profile = _upsert_profile_from_auth_user(
+        user_id=current_user.get("id"),
+        email=current_user.get("email"),
+        metadata=current_user.get("metadata", {}),
+    )
+    merged_metadata = dict(current_user.get("metadata", {}) or {})
+    if profile and profile.get("username"):
+        merged_metadata["username"] = profile.get("username")
+    if profile and profile.get("avatar_url"):
+        merged_metadata["avatar_url"] = profile.get("avatar_url")
+    return {
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "metadata": merged_metadata,
+        "profile": profile,
+    }
+
+
+@app.get("/api/profile")
+async def get_profile(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    user_id = current_user["id"]
+    admin_client = _require_supabase_admin()
+
+    try:
+        response = (
+            admin_client.table("profiles")
+            .select("id, username, avatar_url, created_at, updated_at")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        if rows:
+            return rows[0]
+    except Exception:
+        pass
+
+    metadata = current_user.get("metadata", {}) or {}
+    profile = _upsert_profile_from_auth_user(
+        user_id=user_id,
+        email=current_user.get("email"),
+        metadata=metadata,
+    )
+    if profile:
+        return profile
+
+    return {
+        "id": user_id,
+        "username": _derive_username(current_user.get("email"), metadata),
+        "avatar_url": metadata.get("avatar_url"),
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+@app.put("/api/profile")
+async def upsert_profile(
+    payload: ProfileUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    user_id = current_user["id"]
+    admin_client = _require_supabase_admin()
+
+    row = {
+        "id": user_id,
+        "username": payload.username,
+        "avatar_url": payload.avatar_url,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    try:
+        response = admin_client.table("profiles").upsert(row).execute()
+        if response.data:
+            return response.data[0]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {exc}") from exc
+
+    return row
+
+
+@app.post("/api/storage/upload")
+async def upload_storage_object(
+    bucket: str = Form(...),
+    file: UploadFile = File(...),
+    path: Optional[str] = Form(default=None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    admin_client = _require_supabase_admin()
+    object_path = path or f"{current_user['id']}/{uuid.uuid4().hex}-{file.filename}"
+
+    try:
+        payload = await file.read()
+        admin_client.storage.from_(bucket).upload(
+            path=object_path,
+            file=payload,
+            file_options={
+                "cache-control": "3600",
+                "upsert": "true",
+                "content-type": file.content_type or "application/octet-stream",
+            },
+        )
+        public_url = admin_client.storage.from_(bucket).get_public_url(object_path)
+        return {
+            "bucket": bucket,
+            "path": object_path,
+            "public_url": public_url,
+            "content_type": file.content_type,
+            "size": len(payload),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Storage upload failed: {exc}") from exc
+
+
+@app.get("/api/storage/list")
+async def list_storage_objects(
+    bucket: str,
+    path: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    admin_client = _require_supabase_admin()
+
+    try:
+        objects = admin_client.storage.from_(bucket).list(
+            path=path,
+            options={"limit": limit, "offset": offset},
+        )
+        return {"bucket": bucket, "path": path, "objects": objects, "requested_by": current_user["id"]}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Storage list failed: {exc}") from exc
+
+
+@app.delete("/api/storage/object")
+async def delete_storage_object(
+    payload: StorageDeleteRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    admin_client = _require_supabase_admin()
+
+    try:
+        admin_client.storage.from_(payload.bucket).remove([payload.path])
+        return {
+            "deleted": True,
+            "bucket": payload.bucket,
+            "path": payload.path,
+            "requested_by": current_user["id"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Storage delete failed: {exc}") from exc
+
 
 @app.get("/api/agents")
-async def list_agents():
-    """Lists all available AI agents."""
-    return [agent.dict() for agent in AGENT_REGISTRY.values()]
+async def list_agents() -> List[Dict[str, Any]]:
+    return [_model_dump(agent) for agent in AGENT_REGISTRY.values()]
 
 
 @app.get("/api/agents/{agent_type}")
-async def get_agent(agent_type: str):
-    """Returns details about a specific agent."""
+async def get_agent(agent_type: str) -> Dict[str, Any]:
     if agent_type not in AGENT_REGISTRY:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_type}' not found")
-    return AGENT_REGISTRY[agent_type].dict()
+    return _model_dump(AGENT_REGISTRY[agent_type])
 
-
-# ─── Match Endpoints ──────────────────────────────────────
 
 @app.post("/api/match/start")
-async def start_match(request: MatchRequest):
-    """
-    Initializes a new match between two agents.
-    Returns the match ID and initial game state.
-    """
+async def start_match(request: MatchRequest) -> Dict[str, Any]:
     if request.agent1 not in AGENT_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Unknown agent: {request.agent1}")
     if request.agent2 not in AGENT_REGISTRY:
@@ -332,30 +704,20 @@ async def start_match(request: MatchRequest):
         "state": game_state,
         "rally": 0,
         "started_at": time.time(),
-        "history": [],
     }
 
     return state_to_dict(game_state, match_id)
 
 
 @app.post("/api/match/{match_id}/step")
-async def step_match(match_id: str):
-    """
-    Advances the match by one decision step.
-    The active agent selects an action, which is validated
-    and applied by the simulator.
-    """
+async def step_match(match_id: str) -> Dict[str, Any]:
     if match_id not in active_matches:
         raise HTTPException(status_code=404, detail="Match not found")
 
     match = active_matches[match_id]
     match["rally"] += 1
-
-    # Simulate a step (demonstration mode when agents aren't fully implemented)
-    import random
     state = match["state"]
 
-    # Simulate position changes
     if state.player_pos:
         state.player_pos["x"] = max(0.05, min(0.45, state.player_pos["x"] + random.uniform(-0.05, 0.05)))
         state.player_pos["y"] = max(0.1, min(0.9, state.player_pos["y"] + random.uniform(-0.05, 0.05)))
@@ -364,14 +726,11 @@ async def step_match(match_id: str):
         state.opponent_pos["x"] = max(0.55, min(0.95, state.opponent_pos["x"] + random.uniform(-0.05, 0.05)))
         state.opponent_pos["y"] = max(0.1, min(0.9, state.opponent_pos["y"] + random.uniform(-0.05, 0.05)))
 
-    # Simulate shuttle zone change
     state.shuttle_zone = random.randint(1, 8)
 
-    # Simulate stamina drain
     if state.stamina is not None:
         state.stamina = max(0, state.stamina - random.uniform(1, 5))
 
-    # Simulate scoring (every ~10 rallies)
     actions = ["SMASH", "CLEAR", "DROP_SHOT", "DRIVE", "LOB", "NET_SHOT"]
     last_action = random.choice(actions)
 
@@ -381,8 +740,7 @@ async def step_match(match_id: str):
         else:
             state.score["p2"] += 1
 
-    # Check terminal condition
-    is_terminal = (state.score.get("p1", 0) >= 21 or state.score.get("p2", 0) >= 21)
+    is_terminal = state.score.get("p1", 0) >= 21 or state.score.get("p2", 0) >= 21
 
     result = state_to_dict(state, match_id, match["rally"])
     result["last_action"] = last_action
@@ -390,39 +748,35 @@ async def step_match(match_id: str):
     result["is_terminal"] = is_terminal
 
     if is_terminal:
-        # Record match in history
         winner = match["agent1"] if state.score["p1"] > state.score["p2"] else match["agent2"]
-        match_history.insert(0, {
+        history_row = {
             "id": match_id,
             "agent1": match["agent1"],
             "agent2": match["agent2"],
             "score": state.score,
             "winner": winner,
             "rally_count": match["rally"],
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        })
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        match_history.insert(0, history_row)
+        _persist_match_history(history_row)
         del active_matches[match_id]
 
     return result
 
 
 @app.get("/api/match/{match_id}/state")
-async def get_match_state(match_id: str):
-    """Returns the current state of an active match."""
+async def get_match_state(match_id: str) -> Dict[str, Any]:
     if match_id not in active_matches:
         raise HTTPException(status_code=404, detail="Match not found")
-
     match = active_matches[match_id]
     return state_to_dict(match["state"], match_id, match["rally"])
 
 
 @app.post("/api/match/run")
-async def run_full_match(request: MatchRequest):
-    """
-    Runs a complete match to termination and returns the result.
-    Useful for batch simulation and tournament mode.
-    """
-    import random
+async def run_full_match(request: MatchRequest) -> Dict[str, Any]:
+    if request.agent1 not in AGENT_REGISTRY or request.agent2 not in AGENT_REGISTRY:
+        raise HTTPException(status_code=400, detail="Unknown agent in request")
 
     score = {"p1": 0, "p2": 0}
     rally_count = 0
@@ -435,73 +789,55 @@ async def run_full_match(request: MatchRequest):
             score["p2"] += 1
 
     winner = request.agent1 if score["p1"] > score["p2"] else request.agent2
-
-    result = {
+    record = {
+        "id": str(uuid.uuid4())[:8],
         "agent1": request.agent1,
         "agent2": request.agent2,
         "score": score,
         "winner": winner,
         "rally_count": rally_count,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
-    match_history.insert(0, {
-        "id": str(uuid.uuid4())[:8],
-        **result,
-    })
+    match_history.insert(0, record)
+    _persist_match_history(record)
+    return record
 
-    return result
-
-
-# ─── Leaderboard Endpoints ────────────────────────────────
 
 @app.get("/api/leaderboard")
-async def get_leaderboard():
-    """Returns the current agent leaderboard standings."""
+async def get_leaderboard() -> List[Dict[str, Any]]:
+    db_rows = _fetch_leaderboard_from_db()
+    if db_rows is not None and len(db_rows) > 0:
+        return db_rows
     return leaderboard_data
 
 
-# ─── Match History Endpoints ──────────────────────────────
-
 @app.get("/api/history")
-async def get_history(limit: int = 20):
-    """Returns recent match history records."""
-    return match_history[:limit]
+async def get_history(limit: int = 20) -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(limit, 100))
+    db_rows = _fetch_history_from_db(safe_limit)
+    if db_rows is not None:
+        return db_rows
+    return match_history[:safe_limit]
 
-
-# ─── Configuration Endpoint ───────────────────────────────
 
 @app.get("/api/config")
-async def get_config():
-    """Returns the current game and agent configuration."""
-    return {
-        "game": GAME_CONFIG,
-        "agents": AGENT_CONFIG,
-    }
+async def get_config() -> Dict[str, Any]:
+    return {"game": GAME_CONFIG, "agents": AGENT_CONFIG}
 
-
-# ═══════════════════════════════════════════════════════════
-# Entry Point
-# ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    try:
-        import uvicorn
-    except ImportError:
-        print("uvicorn not installed. Install with: pip install uvicorn")
-        sys.exit(1)
+    import uvicorn
 
     print("=" * 55)
-    print("  SmartSmash — Classical AI Competition Arena")
-    print("  API Server starting on http://localhost:8000")
-    print("  Frontend at http://localhost:8000/")
+    print("  SmartSmash API Server starting on http://localhost:8000")
     print("  API docs at http://localhost:8000/docs")
     print("=" * 55)
 
     uvicorn.run(
-        "src.api.server:app",
+        "api.server:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
-        reload_dirs=[str(PROJECT_ROOT / "src")],
+        reload_dirs=[str(BACKEND_DIR)],
     )
