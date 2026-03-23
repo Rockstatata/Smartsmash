@@ -3,3 +3,7 @@ pyyaml
 matplotlib
 fastapi
 uvicorn[standard]
+fastapi[standard]
+python-dotenv
+supabase
+python-multipart

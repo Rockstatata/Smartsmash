@@ -7,3 +7,6 @@ __pycache__
 *.sqlite3
 .env
 logs/*.json
+
+.stitch
+.impeccable.md
