@@ -38,24 +38,26 @@ export default function Protocol() {
   ];
 
   return (
-    <section id="protocol" className="relative py-24 md:py-32">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-20">
+    <section id="protocol" className="relative py-20 sm:py-24 md:py-32">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-14 sm:mb-16 md:mb-20">
           <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Protocol</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">The Match Lifecycle</h2>
+          <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">The Match Lifecycle</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
           {steps.map((item, i) => (
             <div
               key={i}
-              className="protocol-card relative bg-obsidian-light border border-white/5 rounded-2xl p-8 group hover:border-champagne/20 transition-all duration-500"
+              className="protocol-card relative bg-obsidian-light border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 group hover:border-champagne/20 transition-all duration-500"
             >
               <span className="text-xs font-data text-champagne tracking-widest">{item.step}</span>
-              <h3 className="mt-4 text-2xl font-bold">{item.title}</h3>
+              <h3 className="mt-4 text-xl sm:text-2xl font-bold">{item.title}</h3>
               <p className="mt-3 text-sm text-ivory-muted leading-relaxed">{item.description}</p>
               <div className="mt-6 flex justify-center">
-                <canvas ref={item.canvasRef} width={120} height={120} className="rounded-xl" />
+                <div className="protocol-canvas-shell">
+                  <canvas ref={item.canvasRef} className="protocol-canvas rounded-xl" />
+                </div>
               </div>
             </div>
           ))}

@@ -8,16 +8,16 @@ import { Cpu, Activity, SlidersHorizontal } from 'lucide-react';
  */
 export default function Features() {
   return (
-    <section id="agents" className="relative py-24 md:py-32">
-      <div className="max-w-7xl mx-auto px-6">
+    <section id="agents" className="relative py-20 sm:py-24 md:py-32">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {/* Section Header */}
-        <div className="text-center mb-16 feature-header">
+        <div className="text-center mb-12 sm:mb-16 feature-header">
           <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">System Artifacts</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">Core Intelligence</h2>
+          <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">Core Intelligence</h2>
         </div>
 
         {/* Feature Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           <SimulationEngineCard />
           <AgentTelemetryCard />
           <CoachModeCard />
@@ -52,7 +52,7 @@ function SimulationEngineCard() {
   }, [labels]);
 
   return (
-    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
+    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
       <div className="absolute top-0 right-0 w-32 h-32 bg-champagne/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-champagne/10 transition-all duration-700" />
       <div className="relative z-10">
         <div className="w-10 h-10 rounded-lg bg-champagne/10 flex items-center justify-center mb-6">
@@ -133,7 +133,7 @@ function AgentTelemetryCard() {
   }, [lines]);
 
   return (
-    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
+    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
       <div className="absolute top-0 right-0 w-32 h-32 bg-champagne/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-champagne/10 transition-all duration-700" />
       <div className="relative z-10">
         <div className="w-10 h-10 rounded-lg bg-champagne/10 flex items-center justify-center mb-6">
@@ -142,7 +142,7 @@ function AgentTelemetryCard() {
         <h3 className="text-xl font-bold mb-2">Agent Telemetry</h3>
         <div
           ref={feedRef}
-          className="mt-4 bg-obsidian rounded-lg p-4 font-data text-xs leading-relaxed border border-white/5 h-36 overflow-hidden telemetry-feed"
+          className="mt-4 bg-obsidian rounded-lg p-3 sm:p-4 font-data text-xs leading-relaxed border border-white/5 h-32 sm:h-36 overflow-hidden telemetry-feed"
         >
           {lines.map((line) => (
             <div key={line.id} className={`telemetry-line ${line.color}`}>
@@ -221,7 +221,7 @@ function CoachModeCard() {
   ];
 
   return (
-    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
+    <div className="feature-card group relative bg-obsidian-light border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 hover:border-champagne/20 transition-all duration-500 overflow-hidden">
       <div className="absolute top-0 right-0 w-32 h-32 bg-champagne/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-champagne/10 transition-all duration-700" />
       <div className="relative z-10">
         <div className="w-10 h-10 rounded-lg bg-champagne/10 flex items-center justify-center mb-6">

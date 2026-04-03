@@ -49,6 +49,15 @@ function getAgentMeta(agents, type) {
   return agents.find((agent) => agent.type === type) || null;
 }
 
+const HUMAN_AGENT = {
+  name: 'Human',
+  type: 'human',
+  description: 'Manual control with keyboard input only. No AI auto-shot assistance.',
+  algorithm: 'Manual Input',
+  config: {},
+  color: '#22d3ee',
+};
+
 function toPercent(value, max) {
   if (max <= 0) return 0;
   return clamp(Math.round((value / max) * 100), 0, 100);
@@ -76,16 +85,16 @@ function FlowTopBar({ currentUser, onSignOut, screen, progressIndex, onScreenSel
         showUserEmail={false}
       />
 
-      <div className="pt-24 px-5">
-        <div className="max-w-7xl mx-auto rounded-2xl border border-white/10 bg-obsidian-light/55 backdrop-blur-md px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="pt-20 sm:pt-24 px-4 sm:px-5">
+        <div className="max-w-7xl mx-auto rounded-2xl border border-white/10 bg-obsidian-light/55 backdrop-blur-md px-4 sm:px-5 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-ivory-muted font-data">Control Room</p>
-            <p className="text-sm md:text-base text-ivory mt-1">
+            <p className="text-sm sm:text-base text-ivory mt-1 wrap-break-word">
               Logged in as <span className="text-champagne font-data">{displayName}</span>
             </p>
           </div>
 
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-obsidian/60 px-4 py-2">
+          <div className="inline-flex w-full sm:w-auto justify-center sm:justify-start items-center gap-2 rounded-full border border-white/10 bg-obsidian/60 px-4 py-2">
             <ShieldCheck className="w-4 h-4 text-champagne" />
             <span className="text-xs uppercase tracking-[0.18em] font-data text-ivory-muted">
               {FLOW_LABELS[screen] || screen}
@@ -104,15 +113,15 @@ function FlowStepper({ screen }) {
   const index = findFlowIndex(screen);
 
   return (
-    <div className="max-w-7xl mx-auto px-5 pt-4 pb-8">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10 gap-2">
+    <div className="max-w-7xl mx-auto px-4 sm:px-5 pt-3 sm:pt-4 pb-6 sm:pb-8">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {FLOW_ORDER.map((item, i) => {
           const active = i === index;
           const done = i < index;
           return (
             <div
               key={item}
-              className={`rounded-lg px-2.5 py-2.5 border text-xs uppercase tracking-[0.16em] font-data text-center transition-all ${
+              className={`min-w-32 flex-none rounded-lg px-2.5 py-2.5 border text-xs uppercase tracking-[0.16em] font-data text-center transition-all ${
                 active
                   ? 'border-champagne/50 bg-champagne/10 text-champagne'
                   : done
@@ -131,17 +140,17 @@ function FlowStepper({ screen }) {
 
 function Panel({ title, subtitle, right, children }) {
   return (
-    <section className="max-w-7xl mx-auto px-5 pb-12">
+    <section className="max-w-7xl mx-auto px-4 sm:px-5 pb-8 sm:pb-12">
       <div className="rounded-2xl border border-white/10 bg-obsidian-light/68 backdrop-blur-md overflow-hidden shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-        <div className="px-6 md:px-8 py-6 border-b border-white/5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="px-4 sm:px-6 md:px-8 py-5 sm:py-6 border-b border-white/5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-champagne font-data">Session Stage</p>
-            <h2 className="mt-2 text-3xl md:text-4xl font-bold leading-tight">{title}</h2>
+            <h2 className="mt-2 text-2xl sm:text-3xl md:text-4xl font-bold leading-tight">{title}</h2>
             {subtitle ? <p className="mt-2 text-base text-ivory-muted max-w-3xl">{subtitle}</p> : null}
           </div>
-          {right}
+          {right ? <div className="w-full xl:w-auto xl:shrink-0">{right}</div> : null}
         </div>
-        <div className="p-6 md:p-8">{children}</div>
+        <div className="p-4 sm:p-6 md:p-8">{children}</div>
       </div>
     </section>
   );
@@ -159,17 +168,17 @@ function HomeDashboardScreen({ displayName, leaderboard, history, onStart, lastR
       title={`Welcome back, ${displayName}`}
       subtitle="Home Dashboard"
       right={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={onStart}
-            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian font-semibold text-sm hover:bg-champagne-dark transition-colors"
+            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian font-semibold text-sm hover:bg-champagne-dark transition-colors w-full sm:w-auto"
           >
             Start Match Setup
           </button>
           <button
             onClick={onGoAnalytics}
             disabled={!lastResult}
-            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 disabled:opacity-40"
+            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 disabled:opacity-40 w-full sm:w-auto"
           >
             Last Analytics
           </button>
@@ -194,7 +203,7 @@ function HomeDashboardScreen({ displayName, leaderboard, history, onStart, lastR
           <div className="space-y-2">
             {leaderboard.slice(0, 5).map((row, idx) => (
               <div key={`${row.name}-${idx}`} className="flex items-center justify-between rounded-lg px-4 py-3 bg-white/3 border border-white/5">
-                <span className="text-base">{idx + 1}. {row.name}</span>
+                <span className="text-base pr-2 truncate">{idx + 1}. {row.name}</span>
                 <span className="text-base font-data text-champagne">{row.elo}</span>
               </div>
             ))}
@@ -209,7 +218,7 @@ function HomeDashboardScreen({ displayName, leaderboard, history, onStart, lastR
               const p2 = entry?.score?.p2 ?? 0;
               return (
                 <div key={entry.id || idx} className="rounded-lg px-4 py-3 bg-white/3 border border-white/5 flex items-center justify-between">
-                  <div className="text-base text-ivory-muted">{entry.agent1} vs {entry.agent2}</div>
+                  <div className="text-base text-ivory-muted pr-2 truncate">{entry.agent1} vs {entry.agent2}</div>
                   <div className="font-data text-base text-champagne">{p1}-{p2}</div>
                 </div>
               );
@@ -274,10 +283,19 @@ function ModeSelectionScreen({ setup, onSelect, onNext, onBack }) {
 }
 
 function AgentSelectionScreen({ setup, agents, onAgentSelect, onBack, onNext, loading }) {
+  const selectableAgents = useMemo(() => {
+    if (setup.mode === 'competitor') {
+      return [...agents, HUMAN_AGENT];
+    }
+    return agents.filter((agent) => agent.type !== 'human');
+  }, [agents, setup.mode]);
+
   return (
     <Panel
       title="AI Agent Selection"
-      subtitle="Pick one agent per side for this match."
+      subtitle={setup.mode === 'competitor'
+        ? 'Pick AI or Human for each side. Human uses only manual controls.'
+        : 'Spectator mode allows AI agents only.'}
       right={<NavActions onBack={onBack} onNext={onNext} nextText="Continue to Ability Selection" />}
     >
       {loading ? <p className="text-base text-ivory-muted">Fetching agents from API...</p> : null}
@@ -287,16 +305,16 @@ function AgentSelectionScreen({ setup, agents, onAgentSelect, onBack, onNext, lo
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 mt-2">
         {['p1', 'p2'].map((slot) => {
           const slotLabel = slot === 'p1' ? 'Player One' : 'Player Two';
           const selectedType = setup.players[slot].agentType;
 
           return (
-            <div key={slot} className="rounded-xl border border-white/10 bg-obsidian/70 p-5 md:p-6">
+            <div key={slot} className="rounded-xl border border-white/10 bg-obsidian/70 p-4 sm:p-5 md:p-6">
               <h3 className="text-xs uppercase tracking-[0.2em] text-ivory-muted font-data mb-4">{slotLabel}</h3>
               <div className="space-y-2">
-                {agents.map((agent) => {
+                {selectableAgents.map((agent) => {
                   const selected = selectedType === agent.type;
                   return (
                     <button
@@ -335,13 +353,13 @@ function AbilitySelectionScreen({ setup, onSelectAbility, onBack, onNext }) {
       subtitle="Assign one ability loadout to each agent."
       right={<NavActions onBack={onBack} onNext={onNext} nextText="Continue to Strategy" />}
     >
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
         {['p1', 'p2'].map((slot) => {
           const selected = setup.players[slot].ability;
           const slotName = slot === 'p1' ? (setup.players.p1.name || 'Player One') : (setup.players.p2.name || 'Player Two');
 
           return (
-            <div key={slot} className="rounded-xl border border-white/10 bg-obsidian/70 p-5 md:p-6">
+            <div key={slot} className="rounded-xl border border-white/10 bg-obsidian/70 p-4 sm:p-5 md:p-6">
               <h3 className="text-xs uppercase tracking-[0.2em] text-ivory-muted font-data mb-4">
                 {slotName} Ability
               </h3>
@@ -562,22 +580,22 @@ function MatchResultsScreen({ result, onRematch, onAnalytics, onHome }) {
       title="Match Results"
       subtitle="Simulation complete. Review final outcome and tactical summary."
       right={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={onRematch}
-            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian text-sm font-semibold hover:bg-champagne-dark"
+            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian text-sm font-semibold hover:bg-champagne-dark w-full sm:w-auto"
           >
             Rematch
           </button>
           <button
             onClick={onAnalytics}
-            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40"
+            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 w-full sm:w-auto"
           >
             Final Analytics
           </button>
           <button
             onClick={onHome}
-            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40"
+            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 w-full sm:w-auto"
           >
             Back Home
           </button>
@@ -624,16 +642,16 @@ function FinalAnalyticsScreen({ result, onBackHome, onRematch }) {
       title="Final AI Agent Analytics"
       subtitle="Post-match ability impact and tactical behavior diagnostics."
       right={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={onRematch}
-            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian text-sm font-semibold hover:bg-champagne-dark"
+            className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian text-sm font-semibold hover:bg-champagne-dark w-full sm:w-auto"
           >
             New Match
           </button>
           <button
             onClick={onBackHome}
-            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40"
+            className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 w-full sm:w-auto"
           >
             Home Dashboard
           </button>
@@ -678,10 +696,10 @@ function FinalAnalyticsScreen({ result, onBackHome, onRematch }) {
 
 function NavActions({ onBack, onNext, nextText = 'Continue', disableNext = false }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
       <button
         onClick={onBack}
-        className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 transition-colors flex items-center gap-1.5"
+        className="px-4 py-2.5 rounded-lg border border-white/15 text-sm hover:border-champagne/40 transition-colors flex items-center justify-center gap-1.5 w-full sm:w-auto"
       >
         <ChevronLeft className="w-4 h-4" />
         Back
@@ -689,7 +707,7 @@ function NavActions({ onBack, onNext, nextText = 'Continue', disableNext = false
       <button
         onClick={onNext}
         disabled={disableNext}
-        className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian font-semibold text-sm hover:bg-champagne-dark transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="px-4 py-2.5 rounded-lg bg-champagne text-obsidian font-semibold text-sm hover:bg-champagne-dark transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
       >
         {nextText}
         <ChevronRight className="w-4 h-4" />
@@ -700,8 +718,8 @@ function NavActions({ onBack, onNext, nextText = 'Continue', disableNext = false
 
 function PauseOverlay({ onResume, onRestart, onExit }) {
   return (
-    <div className="fixed inset-0 z-[75] bg-obsidian/80 backdrop-blur-sm flex items-center justify-center px-4">
-      <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-obsidian-light p-7">
+    <div className="fixed inset-0 z-75 bg-obsidian/80 backdrop-blur-sm flex items-center justify-center px-4">
+      <div className="w-full max-w-lg max-h-[90svh] overflow-y-auto rounded-2xl border border-white/15 bg-obsidian-light p-5 sm:p-7">
         <h3 className="text-3xl font-bold">Pause Menu</h3>
         <p className="mt-2 text-base text-ivory-muted">Simulation is paused. Choose your next action.</p>
 
@@ -822,10 +840,24 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
       const p1 = setup.players.p1.agentType;
       const p2 = setup.players.p2.agentType;
       if (!p1 || !p2) {
-        showNotification('Select agents for both players.', 'error');
+        showNotification('Select participants for both players.', 'error');
         return false;
       }
-      if (p1 === p2) {
+
+      const p1Human = p1 === 'human';
+      const p2Human = p2 === 'human';
+
+      if (setup.mode === 'spectator' && (p1Human || p2Human)) {
+        showNotification('Spectator mode allows AI vs AI only.', 'error');
+        return false;
+      }
+
+      if (setup.mode === 'competitor' && !p1Human && !p2Human) {
+        showNotification('Competitor mode requires at least one Human side.', 'error');
+        return false;
+      }
+
+      if (p1 === p2 && p1 !== 'human') {
         showNotification('Choose two different agents for clearer comparison.', 'error');
         return false;
       }
@@ -906,7 +938,22 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
   }, [updateSetup]);
 
   const handleModeSelect = useCallback((modeId) => {
-    updateSetup((prev) => ({ ...prev, mode: modeId }));
+    updateSetup((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next.mode = modeId;
+      next.manualControl = modeId === 'competitor';
+
+      if (modeId === 'spectator') {
+        if (next.players.p1.agentType === 'human') {
+          next.players.p1 = { agentType: '', name: '', ability: 'none' };
+        }
+        if (next.players.p2.agentType === 'human') {
+          next.players.p2 = { agentType: '', name: '', ability: 'none' };
+        }
+      }
+
+      return next;
+    });
   }, [updateSetup]);
 
   const handleAbilitySelect = useCallback((slot, abilityId) => {
@@ -994,7 +1041,7 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
   ]);
 
   return (
-    <div className="min-h-screen bg-obsidian text-ivory">
+    <div className="min-h-dvh bg-obsidian text-ivory">
       <FlowTopBar
         currentUser={currentUser}
         onSignOut={onSignOut}
@@ -1079,20 +1126,25 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
       )}
 
       {screen === 'live' && (
-        <section className="max-w-7xl mx-auto px-5 pb-10">
-          <div className="mb-4 rounded-xl border border-white/10 bg-obsidian-light/60 p-5 md:p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <section className="max-w-7xl mx-auto px-4 sm:px-5 pb-8 sm:pb-10">
+          <div className="mb-4 rounded-xl border border-white/10 bg-obsidian-light/60 p-4 sm:p-5 md:p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-ivory-muted font-data">Active Match</p>
-              <h2 className="text-2xl md:text-3xl font-semibold mt-1">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mt-1">
                 {setup.players.p1.name || p1Agent?.name || 'Player One'} vs {setup.players.p2.name || p2Agent?.name || 'Player Two'}
               </h2>
-              <p className="text-base text-ivory-muted mt-2">
+              <p className="text-sm sm:text-base text-ivory-muted mt-2">
                 Mode: {setup.mode || 'competitor'} • Arena: {arenaName} • Abilities: {formatAbilityLabel(setup.players.p1.ability)} / {formatAbilityLabel(setup.players.p2.ability)}
               </p>
+              {setup.mode === 'competitor' && (setup.players.p1.agentType === 'human' || setup.players.p2.agentType === 'human') ? (
+                <p className="text-sm text-cyan-300 mt-2 font-data">
+                  Controls: P1 uses WASD + J/K/L + U(power). P2 uses Arrow keys + 1/2/3 + 9(power).
+                </p>
+              ) : null}
             </div>
             <button
               onClick={() => setPauseOpen(true)}
-              className="px-4 py-2.5 rounded-lg border border-white/15 hover:border-champagne/40 flex items-center gap-2"
+              className="px-4 py-2.5 rounded-lg border border-white/15 hover:border-champagne/40 flex items-center justify-center gap-2 w-full sm:w-auto"
             >
               <Pause className="w-4 h-4" />
               Pause Menu

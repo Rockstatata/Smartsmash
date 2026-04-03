@@ -77,23 +77,23 @@ export default function GameArena({
 
   const sectionClass = immersive
     ? 'relative'
-    : 'relative py-24 md:py-32 bg-obsidian-light/30';
+    : 'relative py-20 sm:py-24 md:py-32 bg-obsidian-light/30';
 
   return (
     <section id="game-arena" className={sectionClass}>
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {!immersive ? (
-          <div className="text-center mb-12">
+          <div className="text-center mb-10 sm:mb-12">
             <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Live Arena</span>
-            <h2 className="mt-4 text-3xl md:text-5xl font-bold">Real-Time Arena</h2>
+            <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">Real-Time Arena</h2>
           </div>
         ) : null}
 
         <div className="relative">
           <div className="relative bg-obsidian border border-white/5 rounded-2xl overflow-hidden shadow-[0_0_80px_rgba(201,168,76,0.05)]">
             {/* Top HUD Bar */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-obsidian-light/50">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-white/5 bg-obsidian-light/50 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse-slow" />
                   <span className="text-xs font-data text-ivory-muted">LIVE</span>
@@ -107,7 +107,7 @@ export default function GameArena({
                   </span>
                 ) : null}
               </div>
-              <div className="flex items-center gap-6">
+              <div className="flex items-center justify-center gap-4 sm:gap-6">
                 <div className="text-center">
                   <div className="text-[10px] uppercase tracking-widest text-ivory-muted">
                     P1 — <span className="text-champagne">{hudState.p1Name}</span>
@@ -122,9 +122,9 @@ export default function GameArena({
                   <div className="font-data text-lg font-bold">{hudState.p2Score}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                 <button
-                  className="px-3 py-1.5 bg-champagne/10 text-champagne text-xs font-data rounded-lg hover:bg-champagne/20 transition-all flex items-center gap-1"
+                  className="px-3 py-2 bg-champagne/10 text-champagne text-xs font-data rounded-lg hover:bg-champagne/20 transition-all flex items-center justify-center gap-1 flex-1 sm:flex-none"
                   onClick={handleToggle}
                 >
                   {playState ? (
@@ -134,7 +134,7 @@ export default function GameArena({
                   )}
                 </button>
                 <button
-                  className="px-3 py-1.5 bg-white/5 text-ivory-muted text-xs font-data rounded-lg hover:bg-white/10 transition-all"
+                  className="px-3 py-2 bg-white/5 text-ivory-muted text-xs font-data rounded-lg hover:bg-white/10 transition-all flex-1 sm:flex-none"
                   onClick={reset}
                 >
                   RESET
@@ -143,7 +143,7 @@ export default function GameArena({
             </div>
 
             {matchSetup?.players ? (
-              <div className="px-6 py-2 border-b border-white/5 bg-obsidian-light/35 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-widest font-data">
+              <div className="px-4 sm:px-6 py-2 border-b border-white/5 bg-obsidian-light/35 flex flex-wrap items-center gap-2 text-[9px] sm:text-[10px] uppercase tracking-widest font-data">
                 {matchSetup?.arena?.name ? (
                   <span className="text-ivory-muted">
                     Arena: <span className="text-champagne">{matchSetup.arena.name}</span>
@@ -167,13 +167,13 @@ export default function GameArena({
             {/* Canvas + Side Panel */}
             <div className="flex flex-col lg:flex-row">
               {/* Game Canvas */}
-              <div className="flex-1 relative">
-                <canvas ref={canvasRef} className="game-canvas-el w-full" style={{ aspectRatio: '16/10' }} />
+              <div className="flex-1 relative bg-obsidian/20">
+                <canvas ref={canvasRef} className="game-canvas-el w-full touch-none" style={{ aspectRatio: '16/10' }} />
                 {/* Stamina Bars Overlay */}
-                <div className="absolute bottom-4 left-4 right-4 flex justify-between">
+                <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 flex flex-col gap-2 sm:flex-row sm:justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-data text-ivory-muted uppercase">Stamina</span>
-                    <div className="w-24 h-1.5 bg-slate rounded-full overflow-hidden">
+                    <div className="w-20 sm:w-24 h-1.5 bg-slate rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
@@ -184,7 +184,7 @@ export default function GameArena({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-24 h-1.5 bg-slate rounded-full overflow-hidden">
+                    <div className="w-20 sm:w-24 h-1.5 bg-slate rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all duration-300"
                         style={{
@@ -197,7 +197,7 @@ export default function GameArena({
                   </div>
                 </div>
                 {/* Decision Timer */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2">
+                <div className="absolute top-3 sm:top-4 left-1/2 -translate-x-1/2">
                   <div className="px-3 py-1 bg-obsidian/80 backdrop-blur-sm rounded-full border border-white/10">
                     <span className="text-[10px] font-data text-champagne">
                       Decision: {hudState.decisionTime}ms
@@ -207,13 +207,13 @@ export default function GameArena({
               </div>
 
               {/* Action Log Panel */}
-              <div className="w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-white/5 bg-obsidian-light/30">
+              <div className="w-full lg:w-72 xl:w-80 border-t lg:border-t-0 lg:border-l border-white/5 bg-obsidian-light/30">
                 <div className="px-4 py-3 border-b border-white/5">
                   <span className="text-[10px] font-data uppercase tracking-widest text-ivory-muted">Action Log</span>
                 </div>
                 <div
                   ref={logRef}
-                  className="p-4 h-48 lg:h-80 overflow-y-auto font-data text-xs space-y-1.5 action-log"
+                  className="p-4 h-44 sm:h-56 lg:h-88 overflow-y-auto font-data text-xs space-y-1.5 action-log"
                 >
                   {actionLog.map((entry) => (
                     <div key={entry.id} className={entry.agent ? 'action-log-entry text-ivory-muted/80' : 'text-ivory-muted/50'}>
@@ -232,7 +232,7 @@ export default function GameArena({
           </div>
 
           {(matchSummary || analytics) && immersive ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-obsidian-light/40 p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="mt-4 rounded-xl border border-white/10 bg-obsidian-light/40 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-ivory-muted font-data">Winner</p>
                 <p className="text-sm font-semibold text-champagne">{matchSummary?.winnerName || '-'}</p>

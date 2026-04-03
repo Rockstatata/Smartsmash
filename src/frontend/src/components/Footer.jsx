@@ -7,8 +7,8 @@ import { ExternalLink } from 'lucide-react';
 export default function Footer({ isOnline }) {
   return (
     <footer className="relative mt-12 bg-obsidian-light rounded-t-4xl border-t border-white/5">
-      <div className="max-w-7xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 sm:gap-12">
           {/* Brand */}
           <div className="md:col-span-2">
             <a href="#" className="text-2xl font-bold">
@@ -67,7 +67,7 @@ export default function Footer({ isOnline }) {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="mt-10 sm:mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs text-ivory-muted">&copy; 2026 SmartSmash. Classical AI Competition Arena.</p>
           <p className="text-xs text-ivory-muted font-data">Built for CSE 3209 — Artificial Intelligence</p>
         </div>

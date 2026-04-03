@@ -51,11 +51,11 @@ export default function Dashboard() {
   }, [history]);
 
   return (
-    <section id="history" className="relative py-24 md:py-32">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-16">
+    <section id="history" className="relative py-20 sm:py-24 md:py-32">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12 sm:mb-16">
           <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Intelligence Hub</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">Dashboard Preview</h2>
+          <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">Dashboard Preview</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

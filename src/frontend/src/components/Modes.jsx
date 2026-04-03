@@ -17,7 +17,7 @@ export default function Modes() {
       btnClass: 'border border-white/10 rounded-full text-sm font-medium hover:bg-white/5 transition-all duration-300',
       btnText: 'Enter as Spectator',
       cardClass:
-        'mode-card relative bg-obsidian border border-white/5 rounded-2xl p-8 hover:border-white/10 transition-all duration-500',
+        'mode-card relative bg-obsidian border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 hover:border-white/10 transition-all duration-500',
       badge: null,
     },
     {
@@ -32,7 +32,7 @@ export default function Modes() {
         'bg-champagne text-obsidian font-bold rounded-full text-sm hover:bg-champagne-dark transition-all duration-300',
       btnText: 'Enter as Competitor',
       cardClass:
-        'mode-card relative bg-obsidian border-2 border-champagne/40 rounded-2xl p-8 ring-1 ring-champagne/10 shadow-[0_0_60px_rgba(201,168,76,0.08)] transform md:-translate-y-4 transition-all duration-500',
+        'mode-card relative bg-obsidian border-2 border-champagne/40 rounded-2xl p-5 sm:p-6 md:p-8 ring-1 ring-champagne/10 shadow-[0_0_60px_rgba(201,168,76,0.08)] transform md:-translate-y-4 transition-all duration-500',
       badge: 'Recommended',
     },
     {
@@ -46,20 +46,20 @@ export default function Modes() {
       btnClass: 'border border-white/10 rounded-full text-sm font-medium hover:bg-white/5 transition-all duration-300',
       btnText: 'Enter as Analyst',
       cardClass:
-        'mode-card relative bg-obsidian border border-white/5 rounded-2xl p-8 hover:border-white/10 transition-all duration-500',
+        'mode-card relative bg-obsidian border border-white/5 rounded-2xl p-5 sm:p-6 md:p-8 hover:border-white/10 transition-all duration-500',
       badge: null,
     },
   ];
 
   return (
-    <section id="modes" className="relative py-24 md:py-32 bg-obsidian-light/50">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-16">
+    <section id="modes" className="relative py-20 sm:py-24 md:py-32 bg-obsidian-light/50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12 sm:mb-16">
           <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Access</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">Choose Your Mode</h2>
+          <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">Choose Your Mode</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto">
           {modes.map((mode) => {
             const Icon = mode.icon;
             return (

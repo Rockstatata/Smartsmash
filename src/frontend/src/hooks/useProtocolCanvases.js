@@ -7,15 +7,34 @@ import { useEffect, useRef, useCallback } from 'react';
 export default function useProtocolCanvases(canvas1Ref, canvas2Ref, canvas3Ref) {
   const animFrames = useRef([]);
 
+  const syncCanvasSize = useCallback((canvas, ctx) => {
+    const rect = canvas.getBoundingClientRect();
+    const displayW = Math.max(1, Math.round(rect.width));
+    const displayH = Math.max(1, Math.round(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    const pixelW = Math.max(1, Math.round(displayW * dpr));
+    const pixelH = Math.max(1, Math.round(displayH * dpr));
+
+    if (canvas.width !== pixelW || canvas.height !== pixelH) {
+      canvas.width = pixelW;
+      canvas.height = pixelH;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+
+    return { w: displayW, h: displayH };
+  }, []);
+
   const startCanvas1 = useCallback(() => {
     const canvas = canvas1Ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width;
-    const h = canvas.height;
+    if (!ctx) return;
     let angle = 0;
 
     function draw() {
+      const { w, h } = syncCanvasSize(canvas, ctx);
       ctx.clearRect(0, 0, w, h);
       ctx.save();
       ctx.translate(w / 2, h / 2);
@@ -64,18 +83,18 @@ export default function useProtocolCanvases(canvas1Ref, canvas2Ref, canvas3Ref) 
     }
 
     draw();
-  }, [canvas1Ref]);
+  }, [canvas1Ref, syncCanvasSize]);
 
   const startCanvas2 = useCallback(() => {
     const canvas = canvas2Ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width;
-    const h = canvas.height;
+    if (!ctx) return;
     let scanY = 0;
     let time = 0;
 
     function draw() {
+      const { w, h } = syncCanvasSize(canvas, ctx);
       ctx.clearRect(0, 0, w, h);
 
       // Draw court grid
@@ -118,17 +137,17 @@ export default function useProtocolCanvases(canvas1Ref, canvas2Ref, canvas3Ref) 
     }
 
     draw();
-  }, [canvas2Ref]);
+  }, [canvas2Ref, syncCanvasSize]);
 
   const startCanvas3 = useCallback(() => {
     const canvas = canvas3Ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width;
-    const h = canvas.height;
+    if (!ctx) return;
     let time = 0;
 
     function draw() {
+      const { w, h } = syncCanvasSize(canvas, ctx);
       ctx.clearRect(0, 0, w, h);
 
       // Waveform
@@ -183,7 +202,7 @@ export default function useProtocolCanvases(canvas1Ref, canvas2Ref, canvas3Ref) 
     }
 
     draw();
-  }, [canvas3Ref]);
+  }, [canvas3Ref, syncCanvasSize]);
 
   useEffect(() => {
     startCanvas1();

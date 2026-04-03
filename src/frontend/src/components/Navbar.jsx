@@ -71,15 +71,15 @@ export default function Navbar({
       {/* Desktop Navbar */}
       <nav
         id="navbar"
-        className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full border border-white/5 backdrop-blur-md bg-obsidian/60 transition-all duration-500 flex items-center gap-8 nav-pill"
+        className="fixed top-2.5 sm:top-4 left-1/2 -translate-x-1/2 z-50 px-3 sm:px-5 py-2.5 sm:py-3 rounded-full border border-white/5 backdrop-blur-md bg-obsidian/60 transition-all duration-500 flex items-center gap-2 sm:gap-5 nav-pill"
       >
         {/* Logo */}
-        <a href="#" className="text-lg font-bold tracking-tight text-ivory whitespace-nowrap">
+        <a href="#" className="text-base sm:text-lg font-bold tracking-tight text-ivory whitespace-nowrap">
           Smart<span className="text-champagne">Smash</span>
         </a>
 
         {/* Nav Links */}
-        <div className="hidden md:flex items-center gap-6 text-sm text-ivory-muted">
+        <div className="hidden md:flex items-center gap-4 lg:gap-6 text-sm text-ivory-muted">
           {navLinks.map((link) => (
             <a
               key={link.id || link.href}
@@ -95,7 +95,7 @@ export default function Navbar({
         {/* CTA */}
         {handleCta ? (
           <button
-            className="ml-auto px-5 py-2 bg-champagne text-obsidian text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
+            className="hidden sm:inline-flex ml-auto px-4 lg:px-5 py-2 bg-champagne text-obsidian text-xs sm:text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
             onClick={handleCta}
           >
             {resolvedCtaLabel}
@@ -109,7 +109,7 @@ export default function Navbar({
         ) : null}
 
         {/* Mobile Menu Toggle */}
-        <button className="md:hidden ml-2 text-ivory" onClick={toggleMobile}>
+        <button className="md:hidden ml-auto w-9 h-9 rounded-full border border-white/10 bg-white/5 text-ivory inline-flex items-center justify-center" onClick={toggleMobile}>
           <Menu className="w-5 h-5" />
         </button>
       </nav>

@@ -108,10 +108,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     <div className="fixed inset-0 z-60">
       <div className="absolute inset-0 bg-obsidian/80 backdrop-blur-sm" onClick={handleClose} />
 
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md">
+      <div className="absolute inset-0 grid place-items-center p-3 sm:p-4">
         <div
           ref={modalContentRef}
-          className="bg-obsidian-light border border-white/10 rounded-2xl p-8 shadow-2xl mx-4"
+          className="relative w-full max-w-md max-h-[calc(100svh-1.5rem)] overflow-y-auto bg-obsidian-light border border-white/10 rounded-2xl p-5 sm:p-8 shadow-2xl"
         >
           <button
             className="absolute top-4 right-4 text-ivory-muted hover:text-ivory transition-colors"

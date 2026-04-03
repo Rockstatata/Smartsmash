@@ -4,7 +4,7 @@
  */
 export default function Philosophy() {
   return (
-    <section id="philosophy" className="relative py-32 overflow-hidden">
+    <section id="philosophy" className="relative py-20 sm:py-24 md:py-32 overflow-hidden">
       {/* Background texture */}
       <div className="absolute inset-0 z-0">
         <img
@@ -16,9 +16,9 @@ export default function Philosophy() {
         <div className="absolute inset-0 bg-obsidian/80" />
       </div>
 
-      <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
+      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center">
         <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Manifesto</span>
-        <blockquote className="mt-8 text-2xl md:text-4xl lg:text-5xl font-light leading-snug philosophy-text">
+        <blockquote className="mt-6 sm:mt-8 text-xl sm:text-2xl md:text-4xl lg:text-5xl font-light leading-snug philosophy-text">
           Most AI platforms rely on<br className="hidden md:block" />
           black-box learning.<br />
           <span className="mt-4 block">

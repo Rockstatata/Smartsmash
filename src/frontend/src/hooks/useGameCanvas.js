@@ -48,31 +48,108 @@ const PLAYER_SKINS = [
 
 const SHUTTLE_FILE = 'shuttle.svg';
 
+// Manual tweak section: arena-specific visual calibration.
+const ARENA_TUNING = {
+  'Stadium-1.png': {
+    courtTop: 0.3,
+    courtHeight: 0.45,
+    playerGroundOffset: 0.25,
+    playerScale: 1.6,
+    shuttleScale: 0.74,
+  },
+  'Stadium-2.png': {
+    courtTop: 0.2,
+    courtHeight: 0.9,
+    playerGroundOffset: 0.1,
+    playerScale: 0.9,
+    shuttleScale: 0.42,
+  },
+  'Stadium-3.png': {
+    courtTop: 0.1,
+    courtHeight: 0.775,
+    playerGroundOffset: 0.038,
+    playerScale: 1.1,
+    shuttleScale: 0.72,
+  },
+  'Stadium-4.png': {
+    courtTop: 0.34,
+    courtHeight: 0.6,
+    playerGroundOffset: 0.3,
+    playerScale: 1.4,
+    shuttleScale: 0.71,
+  },
+};
+
+// Manual tweak section: shared simulation and animation controls.
+const GAMEPLAY_TUNING = {
+  canvasAspect: 1.6,
+  courtMarginX: 0.03,
+  courtWidth: 0.94,
+  leftHalfCenterX: 0.26,
+  rightHalfCenterX: 0.74,
+  baselineY: 0.705,
+  receiveYOffset: -0.014,
+  xTrackAmplitude: 0.028,
+  yTrackAmplitude: 0.012,
+  xResponse: 10,
+  yResponse: 8,
+  manualMoveSpeed: 0.34,
+  strikeProgress: 0.76,
+  aiReachDistance: 0.11,
+  humanReachDistance: 0.13,
+  smashReachPenalty: 0.015,
+  missFeedbackLife: 0.9,
+  hitFeedbackLife: 0.7,
+  serveShortChance: 0.45,
+  humanServeIdleWindowSec: 1.4,
+  abilityMinStamina: 52,
+  abilityMinSuccessfulShots: 2,
+  abilityMinPoints: 1,
+  abilityCooldownSec: 8,
+  longOutChance: 0.19,
+  longOutDistance: [0.018, 0.06],
+  shortLandingDistance: [0.07, 0.14],
+  longLandingDistance: [0.2, 0.34],
+  netX: 0.5,
+  minNetClearance: 0.17,
+  netFaultThreshold: 0.11,
+  maxShotsPerRally: 16,
+  baseMistakeChance: 0.06,
+  mistakeGrowthPerShot: 0.02,
+  playerSpriteHeight: 0.49,
+  playerDepthBase: 0.9,
+  playerDepthGain: 0.4,
+  playerAnchor: 0.94,
+  shuttleSize: 0.058,
+  trailLength: 28,
+  trailFadeRate: 0.034,
+  decisionBaseMs: 15,
+  decisionSwingMs: 105,
+};
+
 const SHOT_PROFILES = {
   short: {
-    speed: [0.013, 0.017],
-    arc: [0.12, 0.16],
-    jumpFrames: 8,
-    jumpPower: 0.028,
-    nearNetOffset: 0.06,
-    farOffset: 0.12,
+    flightTime: [0.95, 1.15],
+    arc: [0.2, 0.26],
+    jumpTime: 0.2,
+    jumpPower: 0.036,
   },
   smash: {
-    speed: [0.022, 0.028],
-    arc: [0.16, 0.2],
-    jumpFrames: 12,
-    jumpPower: 0.06,
-    nearNetOffset: 0.12,
-    farOffset: 0.2,
+    flightTime: [0.62, 0.78],
+    arc: [0.19, 0.25],
+    jumpTime: 0.28,
+    jumpPower: 0.092,
   },
   long: {
-    speed: [0.010, 0.014],
-    arc: [0.22, 0.3],
-    jumpFrames: 10,
-    jumpPower: 0.04,
-    nearNetOffset: 0.18,
-    farOffset: 0.34,
+    flightTime: [1.25, 1.55],
+    arc: [0.34, 0.42],
+    jumpTime: 0.24,
+    jumpPower: 0.062,
   },
+};
+
+const MANUAL_CONTROL_DEFAULT = {
+  enabled: false,
 };
 
 const HUD_DEFAULT = {
@@ -98,6 +175,19 @@ function sampleRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
+function smoothApproach(current, target, response, dtSec) {
+  const blend = 1 - Math.exp(-response * dtSec);
+  return current + (target - current) * blend;
+}
+
+function isInBounds(x, y) {
+  return x >= 0.08 && x <= 0.92 && y >= 0.57 && y <= 0.82;
+}
+
+function shuttleHeightAtProgress(progress, arc) {
+  return 4 * arc * progress * (1 - progress);
+}
+
 export default function useGameCanvas(canvasRef, options = {}) {
   const {
     matchSetup = null,
@@ -118,9 +208,11 @@ export default function useGameCanvas(canvasRef, options = {}) {
 
   const isPlayingRef = useRef(true);
   const animFrameRef = useRef(null);
+  const lastFrameTimeRef = useRef(0);
   const timeRef = useRef(0);
   const loopRef = useRef(null);
   const particlesRef = useRef([]);
+  const feedbackRef = useRef([]);
   const assetCacheRef = useRef(new Map());
   const assetsReadyRef = useRef(false);
   const logIdCounter = useRef(1);
@@ -138,28 +230,79 @@ export default function useGameCanvas(canvasRef, options = {}) {
   });
 
   const courtRef = useRef({ x: 0, y: 0, w: 0, h: 0, aspectRatio: 13.4 / 6.1 });
+  const controlRef = useRef({
+    ...MANUAL_CONTROL_DEFAULT,
+    leftP1: false,
+    rightP1: false,
+    upP1: false,
+    downP1: false,
+    leftP2: false,
+    rightP2: false,
+    upP2: false,
+    downP2: false,
+    requestedShotP1: null,
+    requestedShotP2: null,
+    abilityTriggerP1: false,
+    abilityTriggerP2: false,
+    movedAtP1: 0,
+    movedAtP2: 0,
+  });
 
   const stateRef = useRef({
-    p1: { x: 0.26, y: 0.64, stamina: 100, name: 'Minimax', hitFrames: 0, jumpFrames: 0, jumpPower: 0 },
-    p2: { x: 0.74, y: 0.64, stamina: 100, name: 'MCTS', hitFrames: 0, jumpFrames: 0, jumpPower: 0 },
+    p1: {
+      x: GAMEPLAY_TUNING.leftHalfCenterX,
+      y: GAMEPLAY_TUNING.baselineY,
+      stamina: 100,
+      name: 'Minimax',
+      hitTime: 0,
+      jumpTime: 0,
+      jumpDuration: 0,
+      jumpPower: 0,
+      successShots: 0,
+      pointsWon: 0,
+      lastAbilityAt: -999,
+    },
+    p2: {
+      x: GAMEPLAY_TUNING.rightHalfCenterX,
+      y: GAMEPLAY_TUNING.baselineY,
+      stamina: 100,
+      name: 'MCTS',
+      hitTime: 0,
+      jumpTime: 0,
+      jumpDuration: 0,
+      jumpPower: 0,
+      successShots: 0,
+      pointsWon: 0,
+      lastAbilityAt: -999,
+    },
     shuttle: {
-      x: 0.5,
-      y: 0.5,
-      prevX: 0.5,
-      prevY: 0.5,
+      x: GAMEPLAY_TUNING.netX,
+      y: GAMEPLAY_TUNING.baselineY,
+      prevX: GAMEPLAY_TUNING.netX,
+      prevY: GAMEPLAY_TUNING.baselineY,
       active: true,
       trail: [],
       from: 'p1',
       to: 'p2',
-      fromX: 0.26,
-      fromY: 0.64,
-      targetX: 0.74,
-      targetY: 0.64,
+      fromX: GAMEPLAY_TUNING.leftHalfCenterX,
+      fromY: GAMEPLAY_TUNING.baselineY,
+      targetX: GAMEPLAY_TUNING.rightHalfCenterX,
+      targetY: GAMEPLAY_TUNING.baselineY,
       z: 0,
       progress: 0,
-      speed: 0.015,
-      arc: 0.1,
+      elapsedSec: 0,
+      flightTimeSec: 0.9,
+      arc: 0.18,
+      outOfCourt: false,
+      contactResolved: false,
       shotType: 'long',
+    },
+    waitingServe: {
+      active: false,
+      server: 'p1',
+      receiver: 'p2',
+      reason: '',
+      startedAt: 0,
     },
     score: { p1: 0, p2: 0 },
     rally: 0,
@@ -208,6 +351,25 @@ export default function useGameCanvas(canvasRef, options = {}) {
     return null;
   }, []);
 
+  const resolveHumanPlayer = useCallback((playerKey) => {
+    const mode = matchOptionsRef.current?.matchSetup?.mode;
+    if (mode !== 'competitor') return false;
+    return matchOptionsRef.current?.matchSetup?.players?.[playerKey]?.agentType === 'human';
+  }, []);
+
+  const resolveManualControlEnabled = useCallback(() => {
+    const mode = matchOptionsRef.current?.matchSetup?.mode;
+    if (mode !== 'competitor') return false;
+    return resolveHumanPlayer('p1') || resolveHumanPlayer('p2');
+  }, [resolveHumanPlayer]);
+
+  const resolveArenaTuning = useCallback(() => {
+    const selectedFile = matchOptionsRef.current?.matchSetup?.arena?.file;
+    const fallbackFile = STADIUMS[stateRef.current.stadiumIndex] || STADIUMS[0];
+    const key = selectedFile && ARENA_TUNING[selectedFile] ? selectedFile : fallbackFile;
+    return ARENA_TUNING[key] || ARENA_TUNING[STADIUMS[0]];
+  }, []);
+
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -217,25 +379,38 @@ export default function useGameCanvas(canvasRef, options = {}) {
 
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+    const viewportHeight = window.visualViewport?.height || window.innerHeight || 0;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = (rect.width / 1.6) * dpr;
-    canvas.style.height = `${rect.width / 1.6}px`;
+    const naturalW = Math.max(1, rect.width);
+    const naturalH = naturalW / GAMEPLAY_TUNING.canvasAspect;
+    const viewportMaxH = viewportHeight > 0
+      ? Math.max(220, Math.min(viewportHeight * 0.74, 760))
+      : naturalH;
+    const constrainedH = Math.min(naturalH, viewportMaxH);
+    const constrainedW = Math.min(naturalW, constrainedH * GAMEPLAY_TUNING.canvasAspect);
+
+    canvas.width = Math.max(1, Math.round(constrainedW * dpr));
+    canvas.height = Math.max(1, Math.round(constrainedH * dpr));
+    canvas.style.width = `${constrainedW}px`;
+    canvas.style.height = `${constrainedH}px`;
+    canvas.style.maxWidth = '100%';
+    canvas.style.margin = '0 auto';
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
 
-    const displayW = rect.width;
-    const displayH = rect.width / 1.6;
+    const displayW = constrainedW;
+    const displayH = constrainedH;
     const court = courtRef.current;
+    const arenaTuning = resolveArenaTuning();
 
-    court.x = displayW * 0.03;
-    court.w = displayW * 0.94;
-    court.y = displayH * 0.36;
-    court.h = displayH * 0.56;
-  }, [canvasRef]);
+    court.x = displayW * GAMEPLAY_TUNING.courtMarginX;
+    court.w = displayW * GAMEPLAY_TUNING.courtWidth;
+    court.y = displayH * arenaTuning.courtTop;
+    court.h = displayH * arenaTuning.courtHeight;
+  }, [canvasRef, resolveArenaTuning]);
 
   const addActionLogEntry = useCallback((custom) => {
     const action = custom ?? DEMO_ACTIONS[Math.floor(Math.random() * DEMO_ACTIONS.length)];
@@ -345,14 +520,78 @@ export default function useGameCanvas(canvasRef, options = {}) {
     return roll < 0.65 ? 'short' : 'long';
   }, [resolvePlayerAbility, resolveStrategyValue]);
 
-  const getTargetX = useCallback((receiver, shotType) => {
-    const profile = SHOT_PROFILES[shotType];
-    const nearNet = receiver === 'p1' ? 0.5 - profile.nearNetOffset : 0.5 + profile.nearNetOffset;
-    const farSide = receiver === 'p1' ? 0.5 - profile.farOffset : 0.5 + profile.farOffset;
+  const consumeRequestedShotForPlayer = useCallback((playerKey, minTimestamp = -Infinity) => {
+    const slot = playerKey === 'p1' ? 'requestedShotP1' : 'requestedShotP2';
+    const requested = controlRef.current[slot];
+    controlRef.current[slot] = null;
+    if (!requested) return null;
 
-    if (shotType === 'short') return nearNet;
-    if (shotType === 'long') return farSide;
-    return lerp(nearNet, farSide, 0.65);
+    if (
+      typeof requested === 'object'
+      && (requested.type === 'short' || requested.type === 'long' || requested.type === 'smash')
+      && Number.isFinite(requested.at)
+      && requested.at >= minTimestamp
+    ) {
+      return requested.type;
+    }
+
+    if (
+      typeof requested === 'string'
+      && (requested === 'short' || requested === 'long' || requested === 'smash')
+      && minTimestamp <= 0
+    ) {
+      return requested;
+    }
+    return null;
+  }, []);
+
+  const pushFeedback = useCallback((kind, x, y, text, color) => {
+    const life = kind === 'hit' ? GAMEPLAY_TUNING.hitFeedbackLife : GAMEPLAY_TUNING.missFeedbackLife;
+    feedbackRef.current.push({ kind, x, y, text, color, life, ttl: life });
+  }, []);
+
+  const canActivateAbility = useCallback((playerKey) => {
+    const state = stateRef.current;
+    const player = state[playerKey];
+    if (!player) return false;
+
+    const ability = resolvePlayerAbility(playerKey);
+    if (!ability || ability === 'none') return false;
+
+    const enoughStamina = player.stamina >= GAMEPLAY_TUNING.abilityMinStamina;
+    const enoughShots = player.successShots >= GAMEPLAY_TUNING.abilityMinSuccessfulShots;
+    const enoughPoints = player.pointsWon >= GAMEPLAY_TUNING.abilityMinPoints;
+    const offCooldown = (timeRef.current - player.lastAbilityAt) >= GAMEPLAY_TUNING.abilityCooldownSec;
+    return enoughStamina && enoughShots && enoughPoints && offCooldown;
+  }, [resolvePlayerAbility]);
+
+  const wasHumanRecentlyActive = useCallback((playerKey, minTimestamp = -Infinity) => {
+    const now = timeRef.current;
+    const ts = playerKey === 'p1' ? controlRef.current.movedAtP1 : controlRef.current.movedAtP2;
+    return ts >= minTimestamp && now - ts <= GAMEPLAY_TUNING.humanServeIdleWindowSec;
+  }, []);
+
+  const getTargetX = useCallback((receiver, shotType) => {
+    const towardLeft = receiver === 'p1';
+    const direction = towardLeft ? -1 : 1;
+
+    if (shotType === 'short') {
+      return GAMEPLAY_TUNING.netX + direction * sampleRange(
+        GAMEPLAY_TUNING.shortLandingDistance[0],
+        GAMEPLAY_TUNING.shortLandingDistance[1],
+      );
+    }
+
+    if (shotType === 'long') {
+      return GAMEPLAY_TUNING.netX + direction * sampleRange(
+        GAMEPLAY_TUNING.longLandingDistance[0],
+        GAMEPLAY_TUNING.longLandingDistance[1],
+      );
+    }
+
+    const smashNear = sampleRange(0.11, 0.16);
+    const smashFar = sampleRange(0.2, 0.29);
+    return GAMEPLAY_TUNING.netX + direction * lerp(smashNear, smashFar, 0.62);
   }, []);
 
   const buildNextShot = useCallback((from, to, shotType) => {
@@ -360,65 +599,111 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const shuttle = state.shuttle;
     const profile = SHOT_PROFILES[shotType];
     const playerAbility = resolvePlayerAbility(from);
+    const playerIsHuman = resolveHumanPlayer(from);
 
     const fromPlayer = state[from];
     const targetX = getTargetX(to, shotType);
-    const targetY = clamp(0.62 + Math.random() * 0.12, 0.58, 0.78);
+    const targetY = clamp(0.67 + Math.random() * 0.12, 0.6, 0.82);
 
     shuttle.from = from;
     shuttle.to = to;
     shuttle.fromX = clamp(fromPlayer.x, 0.08, 0.92);
-    shuttle.fromY = clamp(fromPlayer.y - 0.01, 0.52, 0.86);
-    shuttle.targetX = clamp(targetX, 0.08, 0.92);
+    shuttle.fromY = clamp(fromPlayer.y - GAMEPLAY_TUNING.receiveYOffset, 0.54, 0.84);
+    shuttle.targetX = targetX;
     shuttle.targetY = targetY;
     shuttle.z = 0;
     shuttle.progress = 0;
-    shuttle.speed = sampleRange(profile.speed[0], profile.speed[1]);
+    shuttle.elapsedSec = 0;
+    shuttle.flightTimeSec = sampleRange(profile.flightTime[0], profile.flightTime[1]);
     shuttle.arc = sampleRange(profile.arc[0], profile.arc[1]);
+    shuttle.outOfCourt = false;
+    shuttle.contactResolved = false;
     shuttle.shotType = shotType;
+
+    if (shotType === 'long' && Math.random() < GAMEPLAY_TUNING.longOutChance) {
+      const overshoot = sampleRange(GAMEPLAY_TUNING.longOutDistance[0], GAMEPLAY_TUNING.longOutDistance[1]);
+      shuttle.targetX += to === 'p1' ? -overshoot : overshoot;
+      shuttle.outOfCourt = true;
+    }
+
+    const deltaX = shuttle.targetX - shuttle.fromX;
+    const netProgress = deltaX === 0 ? 0.5 : (GAMEPLAY_TUNING.netX - shuttle.fromX) / deltaX;
+    if (netProgress > 0 && netProgress < 1) {
+      const netArcFactor = Math.max(0.12, 4 * netProgress * (1 - netProgress));
+      const minimumArc = GAMEPLAY_TUNING.minNetClearance / netArcFactor;
+      shuttle.arc = Math.max(shuttle.arc, minimumArc);
+    }
 
     analyticsRef.current.shotCounts[shotType] += 1;
 
-    if (playerAbility === 'speed_burst' && Math.random() < 0.28) {
-      shuttle.speed *= 1.16;
-      analyticsRef.current.abilityActivations[from] += 1;
-      addActionLogEntry({
-        agent: state[from].name,
-        action: 'SPEED BURST activated',
-        color: '#facc15',
-      });
+    const triggerSlot = from === 'p1' ? 'abilityTriggerP1' : 'abilityTriggerP2';
+    const triggerRequested = controlRef.current[triggerSlot] === true;
+    const canUseAbility = canActivateAbility(from);
+    const shouldAutoTry = !playerIsHuman;
+    const shouldHumanTry = playerIsHuman && triggerRequested;
+
+    let abilityTriggered = false;
+    if (shouldHumanTry) {
+      if (!canUseAbility) {
+        addActionLogEntry({
+          agent: state[from].name,
+          action: 'Ability preconditions not met',
+          color: '#f87171',
+        });
+      } else {
+        abilityTriggered = true;
+      }
     }
 
-    if (playerAbility === 'super_smash' && shotType === 'smash' && Math.random() < 0.35) {
-      shuttle.speed *= 1.08;
-      shuttle.arc *= 1.18;
-      analyticsRef.current.abilityActivations[from] += 1;
-      addActionLogEntry({
-        agent: state[from].name,
-        action: 'SUPER SMASH amplified',
-        color: '#f59e0b',
-      });
+    if (shouldAutoTry && canUseAbility) {
+      const chance = playerAbility === 'super_smash' ? 0.35 : playerAbility === 'speed_burst' ? 0.28 : 0.24;
+      abilityTriggered = Math.random() < chance;
     }
 
-    if (playerAbility === 'illusion' && Math.random() < 0.2) {
-      shuttle.targetX = clamp(shuttle.targetX + sampleRange(-0.04, 0.04), 0.1, 0.9);
+    if (abilityTriggered) {
+      if (playerAbility === 'speed_burst') {
+        shuttle.flightTimeSec *= 0.9;
+        addActionLogEntry({
+          agent: state[from].name,
+          action: 'SPEED BURST activated',
+          color: '#facc15',
+        });
+      }
+
+      if (playerAbility === 'super_smash' && shotType === 'smash') {
+        shuttle.flightTimeSec *= 0.92;
+        shuttle.arc *= 1.15;
+        addActionLogEntry({
+          agent: state[from].name,
+          action: 'SUPER SMASH amplified',
+          color: '#f59e0b',
+        });
+      }
+
+      if (playerAbility === 'illusion') {
+        shuttle.targetX = clamp(shuttle.targetX + sampleRange(-0.04, 0.04), 0.1, 0.9);
+        addActionLogEntry({
+          agent: state[from].name,
+          action: 'ILLUSION feint deployed',
+          color: '#60a5fa',
+        });
+      }
+
+      if (playerAbility === 'time_slow') {
+        shuttle.flightTimeSec *= 1.08;
+        addActionLogEntry({
+          agent: state[from].name,
+          action: 'TIME SLOW pulse',
+          color: '#a78bfa',
+        });
+      }
+
+      state[from].lastAbilityAt = timeRef.current;
       analyticsRef.current.abilityActivations[from] += 1;
-      addActionLogEntry({
-        agent: state[from].name,
-        action: 'ILLUSION feint deployed',
-        color: '#60a5fa',
-      });
+      state[from].stamina = clamp(state[from].stamina - 8, 0, 100);
     }
 
-    if (playerAbility === 'time_slow' && Math.random() < 0.24) {
-      shuttle.speed *= 0.92;
-      analyticsRef.current.abilityActivations[from] += 1;
-      addActionLogEntry({
-        agent: state[from].name,
-        action: 'TIME SLOW pulse',
-        color: '#a78bfa',
-      });
-    }
+    controlRef.current[triggerSlot] = false;
 
     state.currentTurn = to;
 
@@ -427,7 +712,39 @@ export default function useGameCanvas(canvasRef, options = {}) {
       action: `${shotType.toUpperCase()} shot`,
       color: from === 'p1' ? '#4A9EFF' : '#FF6B6B',
     });
-  }, [addActionLogEntry, getTargetX, resolvePlayerAbility]);
+  }, [addActionLogEntry, canActivateAbility, getTargetX, resolveHumanPlayer, resolvePlayerAbility]);
+
+  const tryStartWaitingServe = useCallback(() => {
+    const state = stateRef.current;
+    const waiting = state.waitingServe;
+    if (!waiting.active || matchFinishedRef.current) return;
+
+    const server = waiting.server;
+    const receiver = waiting.receiver;
+    const serverHuman = resolveHumanPlayer(server);
+    const p1Human = resolveHumanPlayer('p1');
+    const p2Human = resolveHumanPlayer('p2');
+    const serveGateTime = waiting.startedAt || 0;
+
+    let serveType = null;
+
+    if (serverHuman) {
+      const requested = consumeRequestedShotForPlayer(server, serveGateTime);
+      if (!requested) return;
+      serveType = requested === 'smash' ? 'long' : requested;
+    } else {
+      const hasAnyHuman = p1Human || p2Human;
+      if (hasAnyHuman) {
+        const humanReady = (p1Human && wasHumanRecentlyActive('p1', serveGateTime)) || (p2Human && wasHumanRecentlyActive('p2', serveGateTime));
+        if (!humanReady) return;
+      }
+      serveType = Math.random() < GAMEPLAY_TUNING.serveShortChance ? 'short' : 'long';
+    }
+
+    waiting.active = false;
+    state.shuttle.active = true;
+    buildNextShot(server, receiver, serveType);
+  }, [buildNextShot, consumeRequestedShotForPlayer, resolveHumanPlayer, wasHumanRecentlyActive]);
 
   const buildMatchSummary = useCallback((winner) => {
     const state = stateRef.current;
@@ -462,6 +779,9 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const configuredTarget = Number(matchOptionsRef.current?.targetScore || 21);
 
     state.score[winner] += 1;
+    state[winner].pointsWon += 1;
+    const loser = winner === 'p1' ? 'p2' : 'p1';
+    state[loser].successShots = 0;
     state.rally += 1;
     state.shotCount = 0;
     state.playerSkinIndex = state.rally % PLAYER_SKINS.length;
@@ -475,7 +795,13 @@ export default function useGameCanvas(canvasRef, options = {}) {
       color: '#C9A84C',
     });
 
-    if (state.score[winner] >= configuredTarget && !matchFinishedRef.current) {
+    const p1Score = state.score.p1;
+    const p2Score = state.score.p2;
+    const leadingScore = Math.max(p1Score, p2Score);
+    const scoreGap = Math.abs(p1Score - p2Score);
+    const hasWinner = leadingScore >= configuredTarget && (scoreGap >= 2 || leadingScore >= 30);
+
+    if (hasWinner && !matchFinishedRef.current) {
       matchFinishedRef.current = true;
       state.shuttle.active = false;
 
@@ -505,103 +831,242 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const server = winner;
     const receiver = winner === 'p1' ? 'p2' : 'p1';
 
-    state.p1.hitFrames = 0;
-    state.p1.jumpFrames = 0;
-    state.p2.hitFrames = 0;
-    state.p2.jumpFrames = 0;
+    state.p1.hitTime = 0;
+    state.p1.jumpTime = 0;
+    state.p2.hitTime = 0;
+    state.p2.jumpTime = 0;
 
     state.shuttle.x = state[server].x;
     state.shuttle.y = state[server].y;
     state.shuttle.prevX = state.shuttle.x;
     state.shuttle.prevY = state.shuttle.y;
     state.shuttle.trail = [];
+    state.shuttle.active = false;
+    state.shuttle.contactResolved = false;
+    state.waitingServe.active = true;
+    state.waitingServe.server = server;
+    state.waitingServe.receiver = receiver;
+    state.waitingServe.reason = 'point';
+    state.waitingServe.startedAt = timeRef.current;
 
-    buildNextShot(server, receiver, 'long');
-  }, [addActionLogEntry, buildMatchSummary, buildNextShot, resolveArenaIndex, spawnScoreParticles]);
+    controlRef.current.requestedShotP1 = null;
+    controlRef.current.requestedShotP2 = null;
 
-  const updatePlayers = useCallback(() => {
+    addActionLogEntry({
+      agent: 'System',
+      action: `Rally stopped. Awaiting serve from ${state[server].name}`,
+      color: '#93c5fd',
+    });
+  }, [addActionLogEntry, buildMatchSummary, resolveArenaIndex, spawnScoreParticles]);
+
+  const updatePlayers = useCallback((dtSec) => {
     const state = stateRef.current;
     const shuttle = state.shuttle;
+    const manualEnabled = resolveManualControlEnabled();
 
     const p1Receiving = shuttle.to === 'p1';
     const p2Receiving = shuttle.to === 'p2';
 
     const p1TargetX = p1Receiving
-      ? clamp(shuttle.targetX + Math.sin(timeRef.current * 0.014) * 0.01, 0.13, 0.47)
-      : clamp(0.26 + Math.sin(timeRef.current * 0.013) * 0.04, 0.16, 0.42);
+      ? clamp(shuttle.targetX + Math.sin(timeRef.current * 1.2) * 0.006, 0.13, 0.47)
+      : clamp(
+        GAMEPLAY_TUNING.leftHalfCenterX + Math.sin(timeRef.current * 0.95) * GAMEPLAY_TUNING.xTrackAmplitude,
+        0.14,
+        0.44,
+      );
 
     const p2TargetX = p2Receiving
-      ? clamp(shuttle.targetX + Math.cos(timeRef.current * 0.014) * 0.01, 0.53, 0.87)
-      : clamp(0.74 + Math.cos(timeRef.current * 0.013) * 0.04, 0.58, 0.84);
+      ? clamp(shuttle.targetX + Math.cos(timeRef.current * 1.2) * 0.006, 0.53, 0.87)
+      : clamp(
+        GAMEPLAY_TUNING.rightHalfCenterX + Math.cos(timeRef.current * 0.95) * GAMEPLAY_TUNING.xTrackAmplitude,
+        0.56,
+        0.86,
+      );
 
-    const p1TargetY = clamp(0.64 + Math.sin(timeRef.current * 0.009) * 0.02, 0.58, 0.76);
-    const p2TargetY = clamp(0.64 + Math.cos(timeRef.current * 0.009) * 0.02, 0.58, 0.76);
+    const p1TargetY = clamp(
+      GAMEPLAY_TUNING.baselineY + (p1Receiving ? GAMEPLAY_TUNING.receiveYOffset : 0) + Math.sin(timeRef.current * 0.75) * GAMEPLAY_TUNING.yTrackAmplitude,
+      0.63,
+      0.79,
+    );
+    const p2TargetY = clamp(
+      GAMEPLAY_TUNING.baselineY + (p2Receiving ? GAMEPLAY_TUNING.receiveYOffset : 0) + Math.cos(timeRef.current * 0.75) * GAMEPLAY_TUNING.yTrackAmplitude,
+      0.63,
+      0.79,
+    );
 
-    state.p1.x += (p1TargetX - state.p1.x) * 0.12;
-    state.p1.y += (p1TargetY - state.p1.y) * 0.08;
-    state.p2.x += (p2TargetX - state.p2.x) * 0.12;
-    state.p2.y += (p2TargetY - state.p2.y) * 0.08;
+    const p1Human = manualEnabled && resolveHumanPlayer('p1');
+    const p2Human = manualEnabled && resolveHumanPlayer('p2');
 
-    state.p1.hitFrames = Math.max(0, state.p1.hitFrames - 1);
-    state.p2.hitFrames = Math.max(0, state.p2.hitFrames - 1);
-    state.p1.jumpFrames = Math.max(0, state.p1.jumpFrames - 1);
-    state.p2.jumpFrames = Math.max(0, state.p2.jumpFrames - 1);
+    if (p1Human) {
+      let nextX = state.p1.x;
+      let nextY = state.p1.y;
+      const move = GAMEPLAY_TUNING.manualMoveSpeed * dtSec;
 
-    state.p1.stamina = clamp(60 + Math.sin(timeRef.current * 0.007 + 0.6) * 32, 7, 100);
-    state.p2.stamina = clamp(58 + Math.cos(timeRef.current * 0.007 + 1.2) * 34, 7, 100);
-  }, []);
+      if (controlRef.current.leftP1) nextX -= move;
+      if (controlRef.current.rightP1) nextX += move;
+      if (controlRef.current.upP1) nextY -= move;
+      if (controlRef.current.downP1) nextY += move;
 
-  const updateShuttle = useCallback(() => {
+      state.p1.x = clamp(nextX, 0.12, 0.47);
+      state.p1.y = clamp(nextY, 0.63, 0.79);
+    } else {
+      state.p1.x = smoothApproach(state.p1.x, p1TargetX, GAMEPLAY_TUNING.xResponse, dtSec);
+      state.p1.y = smoothApproach(state.p1.y, p1TargetY, GAMEPLAY_TUNING.yResponse, dtSec);
+    }
+
+    if (p2Human) {
+      let nextX = state.p2.x;
+      let nextY = state.p2.y;
+      const move = GAMEPLAY_TUNING.manualMoveSpeed * dtSec;
+
+      if (controlRef.current.leftP2) nextX -= move;
+      if (controlRef.current.rightP2) nextX += move;
+      if (controlRef.current.upP2) nextY -= move;
+      if (controlRef.current.downP2) nextY += move;
+
+      state.p2.x = clamp(nextX, 0.53, 0.88);
+      state.p2.y = clamp(nextY, 0.63, 0.79);
+    } else {
+      state.p2.x = smoothApproach(state.p2.x, p2TargetX, GAMEPLAY_TUNING.xResponse, dtSec);
+      state.p2.y = smoothApproach(state.p2.y, p2TargetY, GAMEPLAY_TUNING.yResponse, dtSec);
+    }
+
+    state.p1.hitTime = Math.max(0, state.p1.hitTime - dtSec);
+    state.p2.hitTime = Math.max(0, state.p2.hitTime - dtSec);
+    state.p1.jumpTime = Math.max(0, state.p1.jumpTime - dtSec);
+    state.p2.jumpTime = Math.max(0, state.p2.jumpTime - dtSec);
+
+    state.p1.stamina = clamp(60 + Math.sin(timeRef.current * 0.58 + 0.6) * 32, 7, 100);
+    state.p2.stamina = clamp(58 + Math.cos(timeRef.current * 0.58 + 1.2) * 34, 7, 100);
+  }, [resolveHumanPlayer, resolveManualControlEnabled]);
+
+  const updateShuttle = useCallback((dtSec) => {
     const state = stateRef.current;
     const shuttle = state.shuttle;
+    const manualEnabled = resolveManualControlEnabled();
 
     shuttle.prevX = shuttle.x;
     shuttle.prevY = shuttle.y;
 
-    shuttle.progress = Math.min(1, shuttle.progress + shuttle.speed);
+    shuttle.elapsedSec += dtSec;
+    shuttle.progress = Math.min(1, shuttle.elapsedSec / Math.max(0.12, shuttle.flightTimeSec));
     shuttle.x = lerp(shuttle.fromX, shuttle.targetX, shuttle.progress);
     shuttle.y = lerp(shuttle.fromY, shuttle.targetY, shuttle.progress);
-    shuttle.z = Math.sin(Math.PI * shuttle.progress) * shuttle.arc;
+    shuttle.z = shuttleHeightAtProgress(shuttle.progress, shuttle.arc);
 
     shuttle.trail.push({ x: shuttle.x, y: shuttle.y - shuttle.z, life: 1 });
-    if (shuttle.trail.length > 22) shuttle.trail.shift();
+    if (shuttle.trail.length > GAMEPLAY_TUNING.trailLength) shuttle.trail.shift();
 
     for (let i = 0; i < shuttle.trail.length; i++) {
-      shuttle.trail[i].life -= 0.052;
+      shuttle.trail[i].life -= GAMEPLAY_TUNING.trailFadeRate;
     }
 
-    if (shuttle.progress >= 1) {
+    const shouldEvaluateContact = !shuttle.contactResolved && shuttle.progress >= GAMEPLAY_TUNING.strikeProgress;
+    if (shouldEvaluateContact) {
       const receiver = shuttle.to;
       const sender = shuttle.from;
       const nextTarget = receiver === 'p1' ? 'p2' : 'p1';
-      const nextType = pickShotType(receiver);
-      const profile = SHOT_PROFILES[nextType];
+      const receiverState = state[receiver];
+      const receiverHuman = manualEnabled && resolveHumanPlayer(receiver);
+      const manualShot = receiverHuman ? consumeRequestedShotForPlayer(receiver) : null;
+      const nextType = receiverHuman ? manualShot : pickShotType(receiver);
+      const profile = nextType ? SHOT_PROFILES[nextType] : null;
 
-      state[receiver].hitFrames = 12;
-      state[receiver].jumpFrames = profile.jumpFrames;
+      const landingOut = shuttle.outOfCourt || !isInBounds(shuttle.targetX, shuttle.targetY);
+      if (landingOut) {
+        const winner = sender;
+        shuttle.contactResolved = true;
+        pushFeedback('miss', shuttle.x, shuttle.y - Math.max(0.03, shuttle.z * 0.5), 'OUT', '#fb923c');
+        addActionLogEntry({
+          agent: 'System',
+          action: `OUT by ${state[receiver].name} -> point for ${state[winner].name}`,
+          color: '#f59e0b',
+        });
+        registerPoint(winner);
+        return;
+      }
+
+      const deltaX = shuttle.targetX - shuttle.fromX;
+      const netProgress = deltaX === 0 ? 0.5 : (GAMEPLAY_TUNING.netX - shuttle.fromX) / deltaX;
+      const netHeight = netProgress > 0 && netProgress < 1
+        ? shuttleHeightAtProgress(netProgress, shuttle.arc)
+        : shuttle.z;
+
+      if (netHeight < GAMEPLAY_TUNING.netFaultThreshold) {
+        shuttle.contactResolved = true;
+        pushFeedback('miss', GAMEPLAY_TUNING.netX, shuttle.y - 0.02, 'NET', '#fb7185');
+        addActionLogEntry({
+          agent: 'System',
+          action: `NET fault by ${state[sender].name} -> point for ${state[receiver].name}`,
+          color: '#fb7185',
+        });
+        registerPoint(receiver);
+        return;
+      }
+
+      const distance = Math.hypot(receiverState.x - shuttle.x, receiverState.y - shuttle.y);
+      const reachBase = receiverHuman ? GAMEPLAY_TUNING.humanReachDistance : GAMEPLAY_TUNING.aiReachDistance;
+      const reachPenalty = shuttle.shotType === 'smash' ? GAMEPLAY_TUNING.smashReachPenalty : 0;
+      const reach = reachBase - reachPenalty;
+
+      if (!nextType || distance > reach) {
+        const winner = sender;
+        shuttle.contactResolved = true;
+        state[receiver].successShots = 0;
+        pushFeedback('miss', shuttle.x, shuttle.y - 0.03, 'MISS', '#f87171');
+        addActionLogEntry({
+          agent: 'System',
+          action: `MISS by ${state[receiver].name} (distance ${distance.toFixed(2)}) -> point for ${state[winner].name}`,
+          color: '#f87171',
+        });
+        registerPoint(winner);
+        return;
+      }
+
+      state[receiver].hitTime = 0.22;
+      state[receiver].jumpDuration = profile.jumpTime;
+      state[receiver].jumpTime = profile.jumpTime;
       state[receiver].jumpPower = profile.jumpPower;
+      state[receiver].successShots += 1;
+      shuttle.contactResolved = true;
+      pushFeedback('hit', shuttle.x, shuttle.y - Math.max(0.04, shuttle.z * 0.65), `${nextType.toUpperCase()} HIT`, '#4ade80');
       state.shotCount += 1;
 
-      const winnerProbability = shuttle.shotType === 'smash' ? 0.16 : 0.1;
-      const rallyShouldEnd = state.shotCount >= 10 && Math.random() < winnerProbability;
-
-      if (rallyShouldEnd) {
-        const winner = Math.random() > (sender === 'p1' ? 0.45 : 0.55) ? receiver : sender;
-        registerPoint(winner);
-      } else {
-        buildNextShot(receiver, nextTarget, nextType);
+      if (state.shotCount >= GAMEPLAY_TUNING.maxShotsPerRally) {
+        const forcedWinner = receiver;
+        pushFeedback('miss', shuttle.x, shuttle.y - 0.03, 'FORCED ERROR', '#facc15');
+        addActionLogEntry({
+          agent: 'System',
+          action: `Rally cap reached -> point for ${state[forcedWinner].name}`,
+          color: '#facc15',
+        });
+        registerPoint(forcedWinner);
+        return;
       }
-    }
-  }, [buildNextShot, pickShotType, registerPoint]);
 
-  const updateParticles = useCallback(() => {
+      buildNextShot(receiver, nextTarget, nextType);
+    }
+  }, [addActionLogEntry, buildNextShot, consumeRequestedShotForPlayer, pickShotType, pushFeedback, registerPoint, resolveHumanPlayer, resolveManualControlEnabled]);
+
+  const updateParticles = useCallback((dtSec) => {
     const particles = particlesRef.current;
     for (let i = particles.length - 1; i >= 0; i--) {
-      particles[i].life -= 0.018;
-      particles[i].x += particles[i].vx;
-      particles[i].y += particles[i].vy;
-      particles[i].vy += 0.00008;
+      const frameScale = dtSec * 60;
+      particles[i].life -= 0.018 * frameScale;
+      particles[i].x += particles[i].vx * frameScale;
+      particles[i].y += particles[i].vy * frameScale;
+      particles[i].vy += 0.00008 * frameScale;
       if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+  }, []);
+
+  const updateFeedback = useCallback((dtSec) => {
+    const effects = feedbackRef.current;
+    for (let i = effects.length - 1; i >= 0; i--) {
+      effects[i].life -= dtSec;
+      if (effects[i].life <= 0) {
+        effects.splice(i, 1);
+      }
     }
   }, []);
 
@@ -609,7 +1074,7 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const state = stateRef.current;
     state.p1.name = resolvePlayerName('p1', state.p1.name || 'Minimax');
     state.p2.name = resolvePlayerName('p2', state.p2.name || 'MCTS');
-    const baseDecision = 15 + Math.abs(Math.sin(timeRef.current * 0.022)) * 105;
+    const baseDecision = GAMEPLAY_TUNING.decisionBaseMs + Math.abs(Math.sin(timeRef.current * 1.35)) * GAMEPLAY_TUNING.decisionSwingMs;
     const p1Ability = resolvePlayerAbility('p1');
     const p2Ability = resolvePlayerAbility('p2');
 
@@ -669,10 +1134,9 @@ export default function useGameCanvas(canvasRef, options = {}) {
   }, []);
 
   const getJumpOffset = useCallback((player) => {
-    if (player.jumpFrames <= 0) return 0;
-    const peak = 12;
-    const phase = (peak - Math.min(player.jumpFrames, peak)) / peak;
-    return Math.sin(phase * Math.PI) * player.jumpPower;
+    if (player.jumpTime <= 0 || player.jumpDuration <= 0) return 0;
+    const progress = 1 - (player.jumpTime / player.jumpDuration);
+    return Math.sin(progress * Math.PI) * player.jumpPower;
   }, []);
 
   const resolvePose = useCallback((playerKey) => {
@@ -680,8 +1144,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const player = state[playerKey];
     const shuttle = state.shuttle;
 
-    if (player.hitFrames > 7) return 'hit';
-    if (player.hitFrames > 0) return 'hitStance';
+    if (player.hitTime > 0.12) return 'hit';
+    if (player.hitTime > 0) return 'hitStance';
 
     if (shuttle.to === playerKey && shuttle.progress > 0.75) return 'hitStance';
     return 'stance';
@@ -704,9 +1168,10 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const skin = PLAYER_SKINS[state.playerSkinIndex];
     const imageName = skin[side][pose];
     const image = assetCacheRef.current.get(imageName);
+    const arenaTuning = ARENA_TUNING[STADIUMS[state.stadiumIndex]] || ARENA_TUNING[STADIUMS[0]];
 
     const px = court.x + player.x * court.w;
-    const py = court.y + (player.y - jumpOffset) * court.h;
+    const py = court.y + (player.y + arenaTuning.playerGroundOffset - jumpOffset) * court.h;
 
     const shadowScale = 1 - Math.min(0.55, jumpOffset * 5.5);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
@@ -719,26 +1184,29 @@ export default function useGameCanvas(canvasRef, options = {}) {
       return;
     }
 
-    const depthScale = 0.95 + (player.y - 0.58) * 0.5;
-    const baseHeight = court.h * 0.58 * depthScale;
+    const depthScale = GAMEPLAY_TUNING.playerDepthBase + (player.y - 0.6) * GAMEPLAY_TUNING.playerDepthGain;
+    const baseHeight = court.h * GAMEPLAY_TUNING.playerSpriteHeight * depthScale * arenaTuning.playerScale;
     const scale = pose === 'hit' ? 1.09 : pose === 'hitStance' ? 1.04 : 1;
     const drawHeight = baseHeight * scale;
     const drawWidth = drawHeight * (image.naturalWidth / image.naturalHeight);
 
-    ctx.drawImage(image, px - drawWidth / 2, py - drawHeight * 0.86, drawWidth, drawHeight);
+    ctx.drawImage(image, px - drawWidth / 2, py - drawHeight * GAMEPLAY_TUNING.playerAnchor, drawWidth, drawHeight);
   }, [drawFallbackPlayer, getJumpOffset, resolvePose]);
 
   const drawShuttle = useCallback((ctx, court) => {
     const shuttle = stateRef.current.shuttle;
+    const state = stateRef.current;
     const image = assetCacheRef.current.get(SHUTTLE_FILE);
     if (!shuttle.active) return;
+
+    const arenaTuning = ARENA_TUNING[STADIUMS[state.stadiumIndex]] || ARENA_TUNING[STADIUMS[0]];
 
     const sx = court.x + shuttle.x * court.w;
     const sy = court.y + (shuttle.y - shuttle.z) * court.h;
     const dx = shuttle.x - shuttle.prevX;
     const dy = shuttle.y - shuttle.prevY;
     const rotation = Math.atan2(dy, dx);
-    const size = court.h * 0.078;
+    const size = court.h * GAMEPLAY_TUNING.shuttleSize * arenaTuning.shuttleScale;
 
     ctx.save();
     ctx.translate(sx, sy);
@@ -769,6 +1237,21 @@ export default function useGameCanvas(canvasRef, options = {}) {
       ctx.arc(px, py, 2.3 * particle.life, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(201, 168, 76, ${particle.life})`;
       ctx.fill();
+    }
+  }, []);
+
+  const drawFeedback = useCallback((ctx, court) => {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 12px "JetBrains Mono", monospace';
+    for (const fx of feedbackRef.current) {
+      const alpha = clamp(fx.life / Math.max(0.01, fx.ttl), 0, 1);
+      const px = court.x + fx.x * court.w;
+      const py = court.y + fx.y * court.h - (1 - alpha) * 18;
+      ctx.fillStyle = `rgba(13, 13, 18, ${0.6 * alpha})`;
+      ctx.fillRect(px - 38, py - 11, 76, 22);
+      ctx.fillStyle = fx.color || '#f8fafc';
+      ctx.fillText(fx.text, px, py + 1);
     }
   }, []);
 
@@ -805,23 +1288,38 @@ export default function useGameCanvas(canvasRef, options = {}) {
     drawPlayer(ctx, court, 'p2');
     drawShuttle(ctx, court);
     drawParticles(ctx, court);
-  }, [canvasRef, drawBackground, drawCourt, drawLoading, drawParticles, drawPlayer, drawShuttle, drawShuttleTrail]);
+    drawFeedback(ctx, court);
+  }, [canvasRef, drawBackground, drawCourt, drawFeedback, drawLoading, drawParticles, drawPlayer, drawShuttle, drawShuttleTrail]);
 
-  const update = useCallback(() => {
+  const update = useCallback((dtSec) => {
     if (!assetsReadyRef.current) return;
     if (matchFinishedRef.current) return;
-    updatePlayers();
-    updateShuttle();
-    updateParticles();
+
+    tryStartWaitingServe();
+
+    updatePlayers(dtSec);
+    if (!stateRef.current.waitingServe.active && stateRef.current.shuttle.active) {
+      updateShuttle(dtSec);
+    }
+    updateParticles(dtSec);
+    updateFeedback(dtSec);
     updateHud();
-  }, [updateHud, updateParticles, updatePlayers, updateShuttle]);
+  }, [tryStartWaitingServe, updateFeedback, updateHud, updateParticles, updatePlayers, updateShuttle]);
 
   useEffect(() => {
-    loopRef.current = () => {
+    loopRef.current = (timestamp) => {
       if (!isPlayingRef.current) return;
-      update();
+      if (!lastFrameTimeRef.current) {
+        lastFrameTimeRef.current = timestamp;
+      }
+
+      const frameDeltaMs = Math.max(8, Math.min(40, timestamp - lastFrameTimeRef.current));
+      const dtSec = frameDeltaMs / 1000;
+      lastFrameTimeRef.current = timestamp;
+
+      update(dtSec);
       render();
-      timeRef.current += 1;
+      timeRef.current += dtSec;
       animFrameRef.current = requestAnimationFrame(loopRef.current);
     };
   }, [render, update]);
@@ -829,12 +1327,13 @@ export default function useGameCanvas(canvasRef, options = {}) {
   const play = useCallback(() => {
     if (!isPlayingRef.current) {
       isPlayingRef.current = true;
-      loopRef.current();
+      animFrameRef.current = requestAnimationFrame(loopRef.current);
     }
   }, []);
 
   const pause = useCallback(() => {
     isPlayingRef.current = false;
+    lastFrameTimeRef.current = 0;
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -851,6 +1350,88 @@ export default function useGameCanvas(canvasRef, options = {}) {
     return isPlayingRef.current;
   }, [pause, play]);
 
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!resolveManualControlEnabled()) return;
+      const key = event.key.toLowerCase();
+
+      if (key === 'a') controlRef.current.leftP1 = true;
+      if (key === 'd') controlRef.current.rightP1 = true;
+      if (key === 'w') controlRef.current.upP1 = true;
+      if (key === 's') controlRef.current.downP1 = true;
+
+      if (key === 'arrowleft') controlRef.current.leftP2 = true;
+      if (key === 'arrowright') controlRef.current.rightP2 = true;
+      if (key === 'arrowup') controlRef.current.upP2 = true;
+      if (key === 'arrowdown') controlRef.current.downP2 = true;
+
+      if (key === 'a' || key === 'd' || key === 'w' || key === 's') {
+        controlRef.current.movedAtP1 = timeRef.current;
+      }
+      if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
+        controlRef.current.movedAtP2 = timeRef.current;
+      }
+
+      if (key === 'j') {
+        controlRef.current.requestedShotP1 = { type: 'short', at: timeRef.current };
+      }
+      if (key === 'k') {
+        controlRef.current.requestedShotP1 = { type: 'long', at: timeRef.current };
+      }
+      if (key === 'l' || key === ' ') {
+        controlRef.current.requestedShotP1 = { type: 'smash', at: timeRef.current };
+      }
+
+      if (key === '1') {
+        controlRef.current.requestedShotP2 = { type: 'short', at: timeRef.current };
+      }
+      if (key === '2') {
+        controlRef.current.requestedShotP2 = { type: 'long', at: timeRef.current };
+      }
+      if (key === '3' || key === '0') {
+        controlRef.current.requestedShotP2 = { type: 'smash', at: timeRef.current };
+      }
+
+      if (key === 'u') {
+        controlRef.current.abilityTriggerP1 = true;
+      }
+      if (key === '9') {
+        controlRef.current.abilityTriggerP2 = true;
+      }
+
+      if (
+        key === 'a' || key === 'd' || key === 'w' || key === 's'
+        || key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown'
+        || key === 'j' || key === 'k' || key === 'l' || key === ' '
+        || key === '1' || key === '2' || key === '3' || key === '0'
+        || key === 'u' || key === '9'
+      ) {
+        event.preventDefault();
+      }
+    };
+
+    const onKeyUp = (event) => {
+      const key = event.key.toLowerCase();
+      if (key === 'a') controlRef.current.leftP1 = false;
+      if (key === 'd') controlRef.current.rightP1 = false;
+      if (key === 'w') controlRef.current.upP1 = false;
+      if (key === 's') controlRef.current.downP1 = false;
+
+      if (key === 'arrowleft') controlRef.current.leftP2 = false;
+      if (key === 'arrowright') controlRef.current.rightP2 = false;
+      if (key === 'arrowup') controlRef.current.upP2 = false;
+      if (key === 'arrowdown') controlRef.current.downP2 = false;
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [resolveManualControlEnabled]);
+
   const reset = useCallback(() => {
     const state = stateRef.current;
     const p1Name = resolvePlayerName('p1', 'Minimax');
@@ -864,31 +1445,84 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const lockedArenaIndex = resolveArenaIndex();
     state.stadiumIndex = lockedArenaIndex ?? 0;
 
-    state.p1 = { ...state.p1, x: 0.26, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0, name: p1Name };
-    state.p2 = { ...state.p2, x: 0.74, y: 0.64, stamina: 100, hitFrames: 0, jumpFrames: 0, jumpPower: 0, name: p2Name };
+    state.p1 = {
+      ...state.p1,
+      x: GAMEPLAY_TUNING.leftHalfCenterX,
+      y: GAMEPLAY_TUNING.baselineY,
+      stamina: 100,
+      hitTime: 0,
+      jumpTime: 0,
+      jumpDuration: 0,
+      jumpPower: 0,
+      successShots: 0,
+      pointsWon: 0,
+      lastAbilityAt: -999,
+      name: p1Name,
+    };
+    state.p2 = {
+      ...state.p2,
+      x: GAMEPLAY_TUNING.rightHalfCenterX,
+      y: GAMEPLAY_TUNING.baselineY,
+      stamina: 100,
+      hitTime: 0,
+      jumpTime: 0,
+      jumpDuration: 0,
+      jumpPower: 0,
+      successShots: 0,
+      pointsWon: 0,
+      lastAbilityAt: -999,
+      name: p2Name,
+    };
 
     state.shuttle = {
       ...state.shuttle,
-      x: 0.5,
-      y: 0.5,
-      prevX: 0.5,
-      prevY: 0.5,
+      x: GAMEPLAY_TUNING.netX,
+      y: GAMEPLAY_TUNING.baselineY,
+      prevX: GAMEPLAY_TUNING.netX,
+      prevY: GAMEPLAY_TUNING.baselineY,
       trail: [],
       from: 'p1',
       to: 'p2',
-      fromX: 0.26,
-      fromY: 0.64,
-      targetX: 0.74,
-      targetY: 0.64,
+      fromX: GAMEPLAY_TUNING.leftHalfCenterX,
+      fromY: GAMEPLAY_TUNING.baselineY,
+      targetX: GAMEPLAY_TUNING.rightHalfCenterX,
+      targetY: GAMEPLAY_TUNING.baselineY,
       z: 0,
       progress: 0,
-      speed: 0.015,
-      arc: 0.1,
+      elapsedSec: 0,
+      flightTimeSec: 0.9,
+      arc: 0.18,
+      outOfCourt: false,
+      contactResolved: false,
       shotType: 'long',
     };
 
+    state.waitingServe = {
+      active: false,
+      server: 'p1',
+      receiver: 'p2',
+      reason: '',
+      startedAt: 0,
+    };
+
     particlesRef.current = [];
+    feedbackRef.current = [];
     timeRef.current = 0;
+    lastFrameTimeRef.current = 0;
+    controlRef.current.leftP1 = false;
+    controlRef.current.rightP1 = false;
+    controlRef.current.upP1 = false;
+    controlRef.current.downP1 = false;
+    controlRef.current.leftP2 = false;
+    controlRef.current.rightP2 = false;
+    controlRef.current.upP2 = false;
+    controlRef.current.downP2 = false;
+    controlRef.current.requestedShotP1 = null;
+    controlRef.current.requestedShotP2 = null;
+    controlRef.current.abilityTriggerP1 = false;
+    controlRef.current.abilityTriggerP2 = false;
+    controlRef.current.movedAtP1 = 0;
+    controlRef.current.movedAtP2 = 0;
     logIdCounter.current = 1;
     matchFinishedRef.current = false;
     matchStartTimeRef.current = Date.now();
@@ -920,26 +1554,59 @@ export default function useGameCanvas(canvasRef, options = {}) {
 
   useEffect(() => {
     let active = true;
+    const viewport = window.visualViewport;
+    const container = canvasRef.current?.parentElement || null;
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => resize())
+      : null;
 
     resize();
     window.addEventListener('resize', resize);
+    if (viewport) {
+      viewport.addEventListener('resize', resize);
+      viewport.addEventListener('scroll', resize);
+    }
+    if (observer && container) {
+      observer.observe(container);
+    }
 
     preloadAssets().finally(() => {
       if (!active) return;
       const lockedArenaIndex = resolveArenaIndex();
       stateRef.current.stadiumIndex = lockedArenaIndex ?? 0;
+      controlRef.current.enabled = resolveManualControlEnabled();
       matchStartTimeRef.current = Date.now();
       buildNextShot('p1', 'p2', 'long');
       isPlayingRef.current = true;
-      loopRef.current();
+      animFrameRef.current = requestAnimationFrame(loopRef.current);
+
+      if (controlRef.current.enabled) {
+        const p1Human = resolveHumanPlayer('p1');
+        const p2Human = resolveHumanPlayer('p2');
+        const modeText = p1Human && p2Human
+          ? 'Human vs Human controls active'
+          : p1Human
+            ? 'Human(P1) vs AI controls active'
+            : 'AI vs Human(P2) controls active';
+        addActionLogEntry({
+          agent: 'System',
+          action: `${modeText}: P1 move WASD shots J/K/L; P2 move Arrows shots 1/2/3`,
+          color: '#93c5fd',
+        });
+      }
     });
 
     return () => {
       active = false;
       window.removeEventListener('resize', resize);
+      if (viewport) {
+        viewport.removeEventListener('resize', resize);
+        viewport.removeEventListener('scroll', resize);
+      }
+      if (observer) observer.disconnect();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [buildNextShot, preloadAssets, resize, resolveArenaIndex]);
+  }, [addActionLogEntry, buildNextShot, canvasRef, preloadAssets, resize, resolveArenaIndex, resolveHumanPlayer, resolveManualControlEnabled]);
 
   return {
     hudState,

@@ -69,16 +69,16 @@ export default function Leaderboard() {
   };
 
   return (
-    <section id="leaderboard" className="relative py-24 md:py-32">
-      <div className="max-w-5xl mx-auto px-6">
-        <div className="text-center mb-16">
+    <section id="leaderboard" className="relative py-20 sm:py-24 md:py-32">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <div className="text-center mb-12 sm:mb-16">
           <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Rankings</span>
-          <h2 className="mt-4 text-3xl md:text-5xl font-bold">Agent Leaderboard</h2>
+          <h2 className="mt-4 text-2xl sm:text-3xl md:text-5xl font-bold">Agent Leaderboard</h2>
         </div>
 
         <div className="bg-obsidian-light/80 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm leaderboard-table">
+            <table className="w-full min-w-2xl text-sm leaderboard-table">
               <thead>
                 <tr className="border-b border-white/5">
                   {columns.map((col) => (

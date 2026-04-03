@@ -18,6 +18,7 @@ export const DEFAULT_MATCH_SETUP = {
     risk: 45,
     depth: 60,
   },
+  manualControl: false,
 };
 
 export const FLOW_ORDER = [
@@ -51,22 +52,15 @@ export const MODE_OPTIONS = [
     id: 'spectator',
     title: 'Spectator',
     subtitle: 'Observe and benchmark AI behavior',
-    features: ['AI vs AI live feed', 'Telemetry overlays', 'Performance snapshots'],
+    features: ['AI vs AI only', 'Telemetry overlays', 'Performance snapshots'],
     accent: 'border-white/10',
   },
   {
     id: 'competitor',
     title: 'Competitor',
-    subtitle: 'Take command with strategy tuning',
-    features: ['Ability loadout', 'Strategy sliders', 'Live tactical controls'],
+    subtitle: 'Play yourself or challenge with mixed control',
+    features: ['Human vs AI', 'Human vs Human', 'Dual-side live controls'],
     accent: 'border-champagne/40 ring-1 ring-champagne/20',
-  },
-  {
-    id: 'analyst',
-    title: 'Analyst',
-    subtitle: 'Deep dive into decision analytics',
-    features: ['Decision-time traces', 'Ability impact metrics', 'Comparative scoring'],
-    accent: 'border-white/10',
   },
 ];
 
