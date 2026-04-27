@@ -18,6 +18,33 @@ export default function GameArena({
 }) {
   const canvasRef = useRef(null);
   const logRef = useRef(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+
+  const p1Human = matchSetup?.players?.p1?.agentType === 'human';
+  const p2Human = matchSetup?.players?.p2?.agentType === 'human';
+  const hasManualControls = Boolean(matchSetup?.mode === 'competitor' && (p1Human || p2Human));
+
+  const p1ControlRows = [
+    { key: 'W / A / S / D', action: 'Move Player 1 (up / left / down / right)' },
+    { key: 'J', action: 'Short shot' },
+    { key: 'K', action: 'Long clear' },
+    { key: 'L', action: 'Smash' },
+    { key: 'U', action: 'Trigger ability (if available)' },
+  ];
+
+  const p2ControlRows = [
+    { key: 'Arrow Keys', action: 'Move Player 2' },
+    { key: '1', action: 'Short shot' },
+    { key: '2', action: 'Long clear' },
+    { key: '3', action: 'Smash' },
+    { key: '9', action: 'Trigger ability (if available)' },
+  ];
+
+  const globalRows = [
+    { key: 'PAUSE Button', action: 'Pause current rally' },
+    { key: 'RESET Button', action: 'Restart the current match state' },
+  ];
+
   const {
     hudState,
     actionLog,
@@ -71,9 +98,22 @@ export default function GameArena({
       setPlayState(false);
       return;
     }
+    if (tutorialOpen) {
+      pause();
+      setPlayState(false);
+      return;
+    }
     play();
     setPlayState(true);
-  }, [isPaused, pause, play]);
+  }, [isPaused, pause, play, tutorialOpen]);
+
+  const closeTutorial = () => {
+    setTutorialOpen(false);
+    if (!isPaused) {
+      play();
+      setPlayState(true);
+    }
+  };
 
   const sectionClass = immersive
     ? 'relative'
@@ -82,6 +122,79 @@ export default function GameArena({
   return (
     <section id="game-arena" className={sectionClass}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        {tutorialOpen ? (
+          <div className="absolute inset-0 z-30 bg-obsidian/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6">
+            <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-obsidian-light/90 shadow-[0_28px_90px_rgba(0,0,0,0.5)]">
+              <div className="px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/10">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-champagne font-data">Match Tutorial</p>
+                <h3 className="mt-2 text-xl sm:text-2xl font-semibold">Control Map Before Rally Start</h3>
+                <p className="mt-2 text-sm text-ivory-muted">
+                  Review controls once, then start the match. Gameplay is now tuned for slower, weighted movement and smoother transitions.
+                </p>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-5">
+                {hasManualControls ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {p1Human ? (
+                      <div className="rounded-xl border border-white/10 bg-obsidian/65 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-champagne font-data mb-3">Player 1 Controls</p>
+                        <div className="space-y-2 text-sm">
+                          {p1ControlRows.map((row) => (
+                            <div key={row.key} className="flex items-center justify-between gap-3">
+                              <span className="font-data text-ivory">{row.key}</span>
+                              <span className="text-ivory-muted text-right">{row.action}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {p2Human ? (
+                      <div className="rounded-xl border border-white/10 bg-obsidian/65 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-champagne font-data mb-3">Player 2 Controls</p>
+                        <div className="space-y-2 text-sm">
+                          {p2ControlRows.map((row) => (
+                            <div key={row.key} className="flex items-center justify-between gap-3">
+                              <span className="font-data text-ivory">{row.key}</span>
+                              <span className="text-ivory-muted text-right">{row.action}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-obsidian/65 p-4 text-sm text-ivory-muted">
+                    Spectator mode is active. Agents control both players automatically while you can pause or reset from the HUD.
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-white/10 bg-obsidian/65 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-champagne font-data mb-3">Global Match Controls</p>
+                  <div className="space-y-2 text-sm">
+                    {globalRows.map((row) => (
+                      <div key={row.key} className="flex items-center justify-between gap-3">
+                        <span className="font-data text-ivory">{row.key}</span>
+                        <span className="text-ivory-muted text-right">{row.action}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    className="px-5 py-2.5 rounded-lg bg-champagne text-obsidian font-semibold text-sm hover:bg-champagne-dark transition-colors"
+                    onClick={closeTutorial}
+                  >
+                    Start Match
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {!immersive ? (
           <div className="text-center mb-10 sm:mb-12">
             <span className="text-xs tracking-[0.3em] uppercase text-champagne font-data">Live Arena</span>

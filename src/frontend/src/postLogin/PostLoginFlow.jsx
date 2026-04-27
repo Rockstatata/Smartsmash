@@ -1041,7 +1041,7 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
   ]);
 
   return (
-    <div className="min-h-dvh bg-obsidian text-ivory">
+    <div className="post-login-shell min-h-dvh text-ivory">
       <FlowTopBar
         currentUser={currentUser}
         onSignOut={onSignOut}

@@ -109,6 +109,41 @@ body {
 }
 
 
+/* ─── Post Login Background ─────────────────────────────── */
+.post-login-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.post-login-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(160deg, rgba(10, 12, 20, 0.52) 0%, rgba(16, 18, 28, 0.76) 60%, rgba(8, 10, 16, 0.9) 100%),
+    url('/website-background.png');
+  background-size: cover;
+  background-position: center;
+  filter: blur(10px) saturate(1.08);
+  transform: scale(1.05);
+}
+
+.post-login-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(201, 168, 76, 0.15) 0%, rgba(201, 168, 76, 0) 42%),
+    radial-gradient(circle at 85% 14%, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 36%),
+    linear-gradient(180deg, rgba(13, 13, 18, 0.25) 0%, rgba(13, 13, 18, 0.56) 100%);
+  backdrop-filter: blur(2px);
+}
+
+
 /* ─── Hero ───────────────────────────────────────────────── */
 .hero-section::after {
   content: '';

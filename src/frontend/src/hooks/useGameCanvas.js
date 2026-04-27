@@ -101,9 +101,12 @@ const GAMEPLAY_TUNING = {
   receiveYOffset: -0.014,
   xTrackAmplitude: 0.028,
   yTrackAmplitude: 0.012,
-  xResponse: 10,
-  yResponse: 8,
-  manualMoveSpeed: 0.34,
+  xResponse: 6.8,
+  yResponse: 5.8,
+  aiMaxMoveSpeed: 0.24,
+  manualAcceleration: 1.15,
+  manualMaxSpeed: 0.19,
+  manualDrag: 8.4,
   strikeProgress: 0.76,
   aiReachDistance: 0.11,
   humanReachDistance: 0.13,
@@ -133,28 +136,32 @@ const GAMEPLAY_TUNING = {
   shuttleSize: 0.058,
   trailLength: 28,
   trailFadeRate: 0.034,
+  flightTimeScale: 1.2,
+  hitPoseDuration: 0.34,
+  hitPoseStrongWindow: 0.17,
+  prepPoseProgress: 0.68,
   decisionBaseMs: 15,
   decisionSwingMs: 105,
 };
 
 const SHOT_PROFILES = {
   short: {
-    flightTime: [0.95, 1.15],
-    arc: [0.2, 0.26],
-    jumpTime: 0.2,
-    jumpPower: 0.036,
+    flightTime: [1.16, 1.36],
+    arc: [0.19, 0.25],
+    jumpTime: 0.22,
+    jumpPower: 0.03,
   },
   smash: {
-    flightTime: [0.62, 0.78],
-    arc: [0.19, 0.25],
-    jumpTime: 0.28,
-    jumpPower: 0.092,
+    flightTime: [0.82, 1.02],
+    arc: [0.18, 0.24],
+    jumpTime: 0.31,
+    jumpPower: 0.074,
   },
   long: {
-    flightTime: [1.25, 1.55],
-    arc: [0.34, 0.42],
-    jumpTime: 0.24,
-    jumpPower: 0.062,
+    flightTime: [1.48, 1.82],
+    arc: [0.32, 0.4],
+    jumpTime: 0.27,
+    jumpPower: 0.052,
   },
 };
 
@@ -188,6 +195,14 @@ function sampleRange(min, max) {
 function smoothApproach(current, target, response, dtSec) {
   const blend = 1 - Math.exp(-response * dtSec);
   return current + (target - current) * blend;
+}
+
+function smoothApproachWithSpeedCap(current, target, response, maxSpeed, dtSec) {
+  const next = smoothApproach(current, target, response, dtSec);
+  const maxStep = Math.max(0, maxSpeed) * dtSec;
+  const delta = next - current;
+  if (Math.abs(delta) <= maxStep || maxStep <= 0) return next;
+  return current + Math.sign(delta) * maxStep;
 }
 
 function isInBounds(x, y) {
@@ -262,6 +277,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
     p1: {
       x: GAMEPLAY_TUNING.leftHalfCenterX,
       y: GAMEPLAY_TUNING.baselineY,
+      vx: 0,
+      vy: 0,
       stamina: 100,
       name: 'Minimax',
       hitTime: 0,
@@ -275,6 +292,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
     p2: {
       x: GAMEPLAY_TUNING.rightHalfCenterX,
       y: GAMEPLAY_TUNING.baselineY,
+      vx: 0,
+      vy: 0,
       stamina: 100,
       name: 'MCTS',
       hitTime: 0,
@@ -625,6 +644,7 @@ export default function useGameCanvas(canvasRef, options = {}) {
     shuttle.progress = 0;
     shuttle.elapsedSec = 0;
     shuttle.flightTimeSec = sampleRange(profile.flightTime[0], profile.flightTime[1]);
+    shuttle.flightTimeSec *= GAMEPLAY_TUNING.flightTimeScale;
     shuttle.arc = sampleRange(profile.arc[0], profile.arc[1]);
     shuttle.outOfCourt = false;
     shuttle.contactResolved = false;
@@ -907,37 +927,87 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const p2Human = manualEnabled && resolveHumanPlayer('p2');
 
     if (p1Human) {
-      let nextX = state.p1.x;
-      let nextY = state.p1.y;
-      const move = GAMEPLAY_TUNING.manualMoveSpeed * dtSec;
+      const inputX = (controlRef.current.rightP1 ? 1 : 0) - (controlRef.current.leftP1 ? 1 : 0);
+      const inputY = (controlRef.current.downP1 ? 1 : 0) - (controlRef.current.upP1 ? 1 : 0);
 
-      if (controlRef.current.leftP1) nextX -= move;
-      if (controlRef.current.rightP1) nextX += move;
-      if (controlRef.current.upP1) nextY -= move;
-      if (controlRef.current.downP1) nextY += move;
+      state.p1.vx += inputX * GAMEPLAY_TUNING.manualAcceleration * dtSec;
+      state.p1.vy += inputY * GAMEPLAY_TUNING.manualAcceleration * dtSec;
 
-      state.p1.x = clamp(nextX, 0.12, 0.47);
-      state.p1.y = clamp(nextY, 0.63, 0.79);
+      const damping = Math.exp(-GAMEPLAY_TUNING.manualDrag * dtSec);
+      state.p1.vx *= damping;
+      state.p1.vy *= damping;
+
+      const speed = Math.hypot(state.p1.vx, state.p1.vy);
+      if (speed > GAMEPLAY_TUNING.manualMaxSpeed) {
+        const scale = GAMEPLAY_TUNING.manualMaxSpeed / Math.max(0.0001, speed);
+        state.p1.vx *= scale;
+        state.p1.vy *= scale;
+      }
+
+      state.p1.x = clamp(state.p1.x + state.p1.vx * dtSec, 0.12, 0.47);
+      state.p1.y = clamp(state.p1.y + state.p1.vy * dtSec, 0.63, 0.79);
+
+      if (state.p1.x <= 0.1201 || state.p1.x >= 0.4699) state.p1.vx *= 0.25;
+      if (state.p1.y <= 0.6301 || state.p1.y >= 0.7899) state.p1.vy *= 0.25;
     } else {
-      state.p1.x = smoothApproach(state.p1.x, p1TargetX, GAMEPLAY_TUNING.xResponse, dtSec);
-      state.p1.y = smoothApproach(state.p1.y, p1TargetY, GAMEPLAY_TUNING.yResponse, dtSec);
+      state.p1.vx = 0;
+      state.p1.vy = 0;
+      state.p1.x = smoothApproachWithSpeedCap(
+        state.p1.x,
+        p1TargetX,
+        GAMEPLAY_TUNING.xResponse,
+        GAMEPLAY_TUNING.aiMaxMoveSpeed,
+        dtSec,
+      );
+      state.p1.y = smoothApproachWithSpeedCap(
+        state.p1.y,
+        p1TargetY,
+        GAMEPLAY_TUNING.yResponse,
+        GAMEPLAY_TUNING.aiMaxMoveSpeed,
+        dtSec,
+      );
     }
 
     if (p2Human) {
-      let nextX = state.p2.x;
-      let nextY = state.p2.y;
-      const move = GAMEPLAY_TUNING.manualMoveSpeed * dtSec;
+      const inputX = (controlRef.current.rightP2 ? 1 : 0) - (controlRef.current.leftP2 ? 1 : 0);
+      const inputY = (controlRef.current.downP2 ? 1 : 0) - (controlRef.current.upP2 ? 1 : 0);
 
-      if (controlRef.current.leftP2) nextX -= move;
-      if (controlRef.current.rightP2) nextX += move;
-      if (controlRef.current.upP2) nextY -= move;
-      if (controlRef.current.downP2) nextY += move;
+      state.p2.vx += inputX * GAMEPLAY_TUNING.manualAcceleration * dtSec;
+      state.p2.vy += inputY * GAMEPLAY_TUNING.manualAcceleration * dtSec;
 
-      state.p2.x = clamp(nextX, 0.53, 0.88);
-      state.p2.y = clamp(nextY, 0.63, 0.79);
+      const damping = Math.exp(-GAMEPLAY_TUNING.manualDrag * dtSec);
+      state.p2.vx *= damping;
+      state.p2.vy *= damping;
+
+      const speed = Math.hypot(state.p2.vx, state.p2.vy);
+      if (speed > GAMEPLAY_TUNING.manualMaxSpeed) {
+        const scale = GAMEPLAY_TUNING.manualMaxSpeed / Math.max(0.0001, speed);
+        state.p2.vx *= scale;
+        state.p2.vy *= scale;
+      }
+
+      state.p2.x = clamp(state.p2.x + state.p2.vx * dtSec, 0.53, 0.88);
+      state.p2.y = clamp(state.p2.y + state.p2.vy * dtSec, 0.63, 0.79);
+
+      if (state.p2.x <= 0.5301 || state.p2.x >= 0.8799) state.p2.vx *= 0.25;
+      if (state.p2.y <= 0.6301 || state.p2.y >= 0.7899) state.p2.vy *= 0.25;
     } else {
-      state.p2.x = smoothApproach(state.p2.x, p2TargetX, GAMEPLAY_TUNING.xResponse, dtSec);
-      state.p2.y = smoothApproach(state.p2.y, p2TargetY, GAMEPLAY_TUNING.yResponse, dtSec);
+      state.p2.vx = 0;
+      state.p2.vy = 0;
+      state.p2.x = smoothApproachWithSpeedCap(
+        state.p2.x,
+        p2TargetX,
+        GAMEPLAY_TUNING.xResponse,
+        GAMEPLAY_TUNING.aiMaxMoveSpeed,
+        dtSec,
+      );
+      state.p2.y = smoothApproachWithSpeedCap(
+        state.p2.y,
+        p2TargetY,
+        GAMEPLAY_TUNING.yResponse,
+        GAMEPLAY_TUNING.aiMaxMoveSpeed,
+        dtSec,
+      );
     }
 
     state.p1.hitTime = Math.max(0, state.p1.hitTime - dtSec);
@@ -1032,7 +1102,7 @@ export default function useGameCanvas(canvasRef, options = {}) {
         return;
       }
 
-      state[receiver].hitTime = 0.22;
+      state[receiver].hitTime = GAMEPLAY_TUNING.hitPoseDuration;
       state[receiver].jumpDuration = profile.jumpTime;
       state[receiver].jumpTime = profile.jumpTime;
       state[receiver].jumpPower = profile.jumpPower;
@@ -1153,10 +1223,10 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const player = state[playerKey];
     const shuttle = state.shuttle;
 
-    if (player.hitTime > 0.12) return 'hit';
+    if (player.hitTime > GAMEPLAY_TUNING.hitPoseStrongWindow) return 'hit';
     if (player.hitTime > 0) return 'hitStance';
 
-    if (shuttle.to === playerKey && shuttle.progress > 0.75) return 'hitStance';
+    if (shuttle.to === playerKey && shuttle.progress > GAMEPLAY_TUNING.prepPoseProgress) return 'hitStance';
     return 'stance';
   }, []);
 
@@ -1469,6 +1539,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
       ...state.p1,
       x: GAMEPLAY_TUNING.leftHalfCenterX,
       y: GAMEPLAY_TUNING.baselineY,
+      vx: 0,
+      vy: 0,
       stamina: 100,
       hitTime: 0,
       jumpTime: 0,
@@ -1483,6 +1555,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
       ...state.p2,
       x: GAMEPLAY_TUNING.rightHalfCenterX,
       y: GAMEPLAY_TUNING.baselineY,
+      vx: 0,
+      vy: 0,
       stamina: 100,
       hitTime: 0,
       jumpTime: 0,

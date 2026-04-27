@@ -79,7 +79,7 @@ export default function Navbar({
         </a>
 
         {/* Nav Links */}
-        <div className="hidden md:flex items-center gap-4 lg:gap-6 text-sm text-ivory-muted">
+        <div className="hidden md:flex items-center gap-4 lg:gap-6 text-sm text-ivory-muted absolute left-1/2 -translate-x-1/2">
           {navLinks.map((link) => (
             <a
               key={link.id || link.href}
@@ -92,26 +92,28 @@ export default function Navbar({
           ))}
         </div>
 
-        {/* CTA */}
-        {handleCta ? (
-          <button
-            className="hidden sm:inline-flex ml-auto px-4 lg:px-5 py-2 bg-champagne text-obsidian text-xs sm:text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
-            onClick={handleCta}
-          >
-            {resolvedCtaLabel}
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          {/* CTA */}
+          {handleCta ? (
+            <button
+              className="hidden sm:inline-flex px-4 lg:px-5 py-2 bg-champagne text-obsidian text-xs sm:text-sm font-semibold rounded-full hover:bg-champagne-dark transition-all duration-300 whitespace-nowrap"
+              onClick={handleCta}
+            >
+              {resolvedCtaLabel}
+            </button>
+          ) : null}
+
+          {showUserEmail && currentUser?.email ? (
+            <span className="hidden lg:inline text-xs text-ivory-muted font-data whitespace-nowrap">
+              {currentUser.email}
+            </span>
+          ) : null}
+
+          {/* Mobile Menu Toggle */}
+          <button className="md:hidden w-9 h-9 rounded-full border border-white/10 bg-white/5 text-ivory inline-flex items-center justify-center" onClick={toggleMobile}>
+            <Menu className="w-5 h-5" />
           </button>
-        ) : null}
-
-        {showUserEmail && currentUser?.email ? (
-          <span className="hidden lg:inline text-xs text-ivory-muted font-data whitespace-nowrap">
-            {currentUser.email}
-          </span>
-        ) : null}
-
-        {/* Mobile Menu Toggle */}
-        <button className="md:hidden ml-auto w-9 h-9 rounded-full border border-white/10 bg-white/5 text-ivory inline-flex items-center justify-center" onClick={toggleMobile}>
-          <Menu className="w-5 h-5" />
-        </button>
+        </div>
       </nav>
 
       {/* Mobile Menu Drawer */}
