@@ -48,6 +48,16 @@ const PLAYER_SKINS = [
 
 const SHUTTLE_FILE = 'shuttle.svg';
 
+// Each special ability maps to one character skin (index into PLAYER_SKINS).
+// 'none' falls back to the default skin (Player-1).
+const ABILITY_SKIN_INDEX = {
+  super_smash: 0,
+  speed_burst: 1,
+  illusion: 2,
+  time_slow: 3,
+};
+const DEFAULT_SKIN_INDEX = 0;
+
 // Manual tweak section: arena-specific visual calibration.
 const ARENA_TUNING = {
   'Stadium-1.png': {
@@ -784,7 +794,6 @@ export default function useGameCanvas(canvasRef, options = {}) {
     state[loser].successShots = 0;
     state.rally += 1;
     state.shotCount = 0;
-    state.playerSkinIndex = state.rally % PLAYER_SKINS.length;
     const lockedArenaIndex = resolveArenaIndex();
     state.stadiumIndex = lockedArenaIndex ?? (state.rally % STADIUMS.length);
 
@@ -1165,7 +1174,9 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const jumpOffset = getJumpOffset(player);
     const side = playerKey === 'p1' ? 'right' : 'left';
     const pose = resolvePose(playerKey);
-    const skin = PLAYER_SKINS[state.playerSkinIndex];
+    const ability = resolvePlayerAbility(playerKey);
+    const skinIndex = ABILITY_SKIN_INDEX[ability] ?? DEFAULT_SKIN_INDEX;
+    const skin = PLAYER_SKINS[skinIndex];
     const imageName = skin[side][pose];
     const image = assetCacheRef.current.get(imageName);
     const arenaTuning = ARENA_TUNING[STADIUMS[state.stadiumIndex]] || ARENA_TUNING[STADIUMS[0]];
@@ -1191,7 +1202,7 @@ export default function useGameCanvas(canvasRef, options = {}) {
     const drawWidth = drawHeight * (image.naturalWidth / image.naturalHeight);
 
     ctx.drawImage(image, px - drawWidth / 2, py - drawHeight * GAMEPLAY_TUNING.playerAnchor, drawWidth, drawHeight);
-  }, [drawFallbackPlayer, getJumpOffset, resolvePose]);
+  }, [drawFallbackPlayer, getJumpOffset, resolvePlayerAbility, resolvePose]);
 
   const drawShuttle = useCallback((ctx, court) => {
     const shuttle = stateRef.current.shuttle;
@@ -1351,9 +1362,17 @@ export default function useGameCanvas(canvasRef, options = {}) {
   }, [pause, play]);
 
   useEffect(() => {
+    const getNormalizedKey = (event) => {
+      if (!event || typeof event.key !== 'string') {
+        return '';
+      }
+      return event.key.toLowerCase();
+    };
+
     const onKeyDown = (event) => {
       if (!resolveManualControlEnabled()) return;
-      const key = event.key.toLowerCase();
+      const key = getNormalizedKey(event);
+      if (!key) return;
 
       if (key === 'a') controlRef.current.leftP1 = true;
       if (key === 'd') controlRef.current.rightP1 = true;
@@ -1411,7 +1430,8 @@ export default function useGameCanvas(canvasRef, options = {}) {
     };
 
     const onKeyUp = (event) => {
-      const key = event.key.toLowerCase();
+      const key = getNormalizedKey(event);
+      if (!key) return;
       if (key === 'a') controlRef.current.leftP1 = false;
       if (key === 'd') controlRef.current.rightP1 = false;
       if (key === 'w') controlRef.current.upP1 = false;

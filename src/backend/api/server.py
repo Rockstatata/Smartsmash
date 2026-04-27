@@ -12,6 +12,7 @@ import random
 import sys
 import time
 import uuid
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -42,9 +43,15 @@ load_dotenv(BACKEND_DIR / ".env")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-CORS_ORIGINS = os.getenv(
+DEMO_AUTH_FALLBACK_ENABLED = os.getenv("DEMO_AUTH_FALLBACK", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+CORS_ORIGINS_RAW = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
 )
 
 supabase_public: Optional[Client] = None
@@ -128,14 +135,34 @@ app = FastAPI(
     version="2.0.0",
 )
 
-origins = [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
+
+def _parse_cors_origins(raw_value: str) -> List[str]:
+    value = (raw_value or "").strip()
+    if not value:
+        return []
+
+    # Support both CSV and JSON array input formats.
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except Exception:
+            pass
+
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+cors_origins = _parse_cors_origins(CORS_ORIGINS_RAW)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 security = HTTPBearer(auto_error=False)
 
@@ -236,11 +263,78 @@ def _require_supabase_admin() -> Client:
     return supabase_admin
 
 
+def _is_supabase_network_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = (
+        "getaddrinfo failed",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "failed to resolve",
+        "connection refused",
+        "timed out",
+        "network is unreachable",
+    )
+    return any(marker in message for marker in markers)
+
+
+def _is_invalid_credentials_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = (
+        "invalid login credentials",
+        "invalid credentials",
+        "email not confirmed",
+    )
+    return any(marker in message for marker in markers)
+
+
+demo_auth_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def _build_demo_auth_response(email: str, preferred_username: Optional[str] = None) -> Dict[str, Any]:
+    safe_email = (email or "").strip() or f"demo_{uuid.uuid4().hex[:6]}@local.smartsmash"
+    username = _derive_username(safe_email, {}, preferred_username)
+    user_id = f"demo-{uuid.uuid4().hex[:12]}"
+    access_token = f"demo.{uuid.uuid4().hex}"
+
+    user_payload = {
+        "id": user_id,
+        "email": safe_email,
+        "metadata": {
+            "username": username,
+            "auth_mode": "demo",
+        },
+    }
+    profile_payload = {
+        "id": user_id,
+        "username": username,
+        "avatar_url": None,
+        "created_at": None,
+        "updated_at": None,
+    }
+
+    demo_auth_sessions[access_token] = user_payload
+
+    return {
+        "user": user_payload,
+        "profile": profile_payload,
+        "session": {
+            "access_token": access_token,
+            "refresh_token": None,
+            "expires_in": 86400,
+        },
+        "mode": "demo",
+    }
+
+
 def _extract_user(credentials: Optional[HTTPAuthorizationCredentials]) -> Dict[str, Any]:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     token = credentials.credentials
+    demo_user = demo_auth_sessions.get(token)
+    if demo_user:
+        return demo_user
+
     client = _require_supabase_public()
     try:
         auth_response = client.auth.get_user(token)
@@ -435,6 +529,7 @@ async def health_check() -> Dict[str, Any]:
             "service_role_configured": bool(SUPABASE_SERVICE_ROLE_KEY),
             "status": supabase_status,
         },
+        "demo_auth_fallback_enabled": DEMO_AUTH_FALLBACK_ENABLED,
     }
 
 
@@ -480,6 +575,16 @@ async def sign_up(payload: SignUpRequest) -> Dict[str, Any]:
             "email_confirmation_required": session is None,
         }
     except Exception as exc:
+        if _is_supabase_network_error(exc):
+            if DEMO_AUTH_FALLBACK_ENABLED:
+                return {
+                    **_build_demo_auth_response(payload.email, payload.username),
+                    "email_confirmation_required": False,
+                }
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication service is unreachable. Check SUPABASE_URL and network connectivity.",
+            ) from exc
         raise HTTPException(status_code=400, detail=f"Sign up failed: {exc}") from exc
 
 
@@ -518,6 +623,15 @@ async def sign_in(payload: SignInRequest) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
+        if _is_invalid_credentials_error(exc):
+            raise HTTPException(status_code=401, detail="Invalid credentials") from exc
+        if _is_supabase_network_error(exc):
+            if DEMO_AUTH_FALLBACK_ENABLED:
+                return _build_demo_auth_response(payload.email)
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication service is unreachable. Check SUPABASE_URL and network connectivity.",
+            ) from exc
         raise HTTPException(status_code=401, detail=f"Sign in failed: {exc}") from exc
 
 
