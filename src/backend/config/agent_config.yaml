@@ -1,6 +1,124 @@
 # Agent specific configurations
 minimax:
   depth: 3
+  include_movement_actions: false
+  top_actions: 3
+  pruning: true
+  max_branching: 8
+  cache_rounding: 3
+  points_to_win: 21
+  fallback_action: DRIVE
+  action_order:
+    - SMASH
+    - SPECIAL
+    - DRIVE
+    - CLEAR
+    - LOB
+    - DROP_SHOT
+    - NET_SHOT
+    - MOVE_LEFT
+    - MOVE_RIGHT
+    - STAY
+  thresholds:
+    attack_height: 1.8
+    defense_height: 0.9
+    opponent_near: 0.35
+    low_stamina: 30
+    power_full: 95
+    front_zone_max: 4
+  normalization:
+    stamina_max: 100
+    power_max: 100
+    height_min: 0.0
+    height_max: 5.0
+    zone_max: 8
+    score_scale: 5
+    distance_norm: 1.4
+    depth_front_y: 0.25
+    depth_back_y: 0.75
+  weights:
+    positional_advantage: 0.18
+    stamina_advantage: 0.2
+    power_advantage: 0.12
+    offensive_opportunity: 0.2
+    defensive_risk: -0.15
+    score_pressure: 0.15
+    rally_state_bias: 0.1
+  offensive_weights:
+    height: 0.4
+    opponent_distance: 0.4
+    power: 0.2
+  defensive_weights:
+    low_height: 0.6
+    opponent_near: 0.4
+  rally_state_biases:
+    attack: 0.6
+    defense: -0.6
+    neutral: 0.0
+  action_constraints:
+    smash_min_stamina: 25
+    special_min_power: 90
+  action_effects:
+    SMASH:
+      stamina_cost: 12
+      power_delta: -20
+      height_delta: -0.7
+      zone_delta: 2
+      pos_dx: 0.0
+    CLEAR:
+      stamina_cost: 6
+      power_delta: 5
+      height_delta: 0.8
+      zone_delta: 2
+      pos_dx: 0.0
+    DROP_SHOT:
+      stamina_cost: 5
+      power_delta: 4
+      height_delta: -0.3
+      zone_delta: -1
+      pos_dx: 0.0
+    DRIVE:
+      stamina_cost: 7
+      power_delta: 3
+      height_delta: 0.1
+      zone_delta: 1
+      pos_dx: 0.0
+    LOB:
+      stamina_cost: 6
+      power_delta: 4
+      height_delta: 0.9
+      zone_delta: 2
+      pos_dx: 0.0
+    NET_SHOT:
+      stamina_cost: 4
+      power_delta: 3
+      height_delta: -0.5
+      zone_delta: -1
+      pos_dx: 0.0
+    SPECIAL:
+      stamina_cost: 10
+      power_delta: -100
+      height_delta: -0.4
+      zone_delta: 2
+      pos_dx: 0.0
+    MOVE_LEFT:
+      stamina_cost: 2
+      power_delta: 1
+      height_delta: 0.0
+      zone_delta: 0
+      pos_dx: -0.05
+    MOVE_RIGHT:
+      stamina_cost: 2
+      power_delta: 1
+      height_delta: 0.0
+      zone_delta: 0
+      pos_dx: 0.05
+    STAY:
+      stamina_cost: 1
+      power_delta: 1
+      height_delta: 0.0
+      zone_delta: 0
+      pos_dx: 0.0
 
 mcts:
   simulations: 1000
