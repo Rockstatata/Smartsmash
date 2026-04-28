@@ -92,8 +92,8 @@ class MCTSAgent(BaseAgent):
             "target_score": DEFAULT_TARGET_SCORE,
             # PRD-ish resource constraints.
             "min_smash_stamina": 30.0,
-            "min_special_stamina": 40.0,
-            "min_special_power": 100.0,
+            "min_special_stamina": 30.0,
+            "min_special_power": 60.0,
             "allow_special": True,
             # Simple rollout tuning.
             "stamina_recovery": 2.0,

@@ -31,11 +31,11 @@ SHOT_INTENT_TO_ACTION: Dict[str, Dict[str, float]] = {
     "smash":   {"SMASH": 1.0, "DRIVE": 0.3},
     "long":    {"CLEAR": 1.0, "LOB": 0.7, "DRIVE": 0.4},
     "short":   {"DROP_SHOT": 1.0, "NET_SHOT": 0.9},
-    "special": {"SPECIAL": 1.0, "SMASH": 0.3},
+    "special": {"SPECIAL": 1.25, "SMASH": 0.25},
 }
 
 # Aggression modulates aggressive shots; defense modulates defensive shots.
-AGGRESSIVE_ACTIONS = {"SMASH": 1.0, "DRIVE": 0.6, "SPECIAL": 0.7}
+AGGRESSIVE_ACTIONS = {"SMASH": 1.0, "DRIVE": 0.6, "SPECIAL": 0.9}
 DEFENSIVE_ACTIONS = {"DROP_SHOT": 1.0, "NET_SHOT": 0.8, "LOB": 0.6, "CLEAR": 0.5}
 
 
@@ -72,6 +72,12 @@ def score_actions(intents: Dict[str, Dict[str, float]]) -> Dict[str, float]:
     scores["MOVE_LEFT"] += movement.get("left", 0.0)
     scores["MOVE_RIGHT"] += movement.get("right", 0.0)
     scores["STAY"] += movement.get("stay", 0.0)
+
+    # Tactical nudge: when special intent is materially active,
+    # reduce over-conservative collapse into generic shots.
+    special_intent = float(shot.get("special", 0.0))
+    if special_intent >= 0.45:
+        scores["SPECIAL"] += 0.22 * special_intent
 
     return scores
 

@@ -1,0 +1,13 @@
+experiment:
+  samples_per_pair: 100
+  seed: 20260428
+  randomize_roles: true
+  randomize_starting_turn: true
+  target_score: 5
+  max_rallies: 50
+  initial_power_levels: [0, 25, 50, 75, 100]
+  include_movement_actions: false
+  output:
+    docs_dir: docs
+    logs_dir: logs
+    report_basename: ai_samples

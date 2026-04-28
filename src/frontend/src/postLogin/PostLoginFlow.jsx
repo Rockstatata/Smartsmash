@@ -19,7 +19,7 @@ import {
 
 import GameArena from '../components/GameArena';
 import Navbar from '../components/Navbar';
-import { getAgents, getLeaderboard, getMatchHistory, USE_API } from '../services/api';
+import { getAgents, getLeaderboard, getMatchHistory, submitMatchComplete, USE_API } from '../services/api';
 import { showNotification } from '../utils/notifications';
 import {
   ABILITY_OPTIONS,
@@ -768,31 +768,21 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
   const displayName = resolveDisplayName(currentUser);
   const flowIndex = findFlowIndex(screen);
 
-  useEffect(() => {
-    let active = true;
-
-    if (!USE_API) {
-      return () => {
-        active = false;
-      };
+  const refreshScoreboards = useCallback(async () => {
+    if (!USE_API) return;
+    try {
+      const [leaderboardRows, historyRows] = await Promise.all([getLeaderboard(), getMatchHistory(8)]);
+      if (Array.isArray(leaderboardRows)) setLeaderboard(leaderboardRows);
+      if (Array.isArray(historyRows)) setHistory(historyRows);
+    } catch {
+      setLeaderboard([]);
+      setHistory([]);
     }
-
-    Promise.all([getLeaderboard(), getMatchHistory(8)])
-      .then(([leaderboardRows, historyRows]) => {
-        if (!active) return;
-        if (Array.isArray(leaderboardRows) && leaderboardRows.length) setLeaderboard(leaderboardRows);
-        if (Array.isArray(historyRows) && historyRows.length) setHistory(historyRows);
-      })
-      .catch(() => {
-        if (!active) return;
-        setLeaderboard([]);
-        setHistory([]);
-      });
-
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useEffect(() => {
+    refreshScoreboards();
+  }, [refreshScoreboards]);
 
   useEffect(() => {
     if (screen !== 'agents') return;
@@ -910,12 +900,22 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
     setScreen('live');
   }, []);
 
-  const handleMatchComplete = useCallback((summary) => {
+  const handleMatchComplete = useCallback(async (summary) => {
     setPauseOpen(false);
     setLatestResult(summary);
     setResultHistory((prev) => [summary, ...prev].slice(0, 10));
+
+    if (USE_API && summary) {
+      try {
+        await submitMatchComplete(summary);
+        await refreshScoreboards();
+      } catch {
+        // Keep local flow working even if persistence fails.
+      }
+    }
+
     setScreen('results');
-  }, []);
+  }, [refreshScoreboards]);
 
   const restartMatch = useCallback(() => {
     setPauseOpen(false);
@@ -1041,7 +1041,7 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
   ]);
 
   return (
-    <div className="post-login-shell min-h-dvh text-ivory">
+    <div className="post-login-shell min-h-dvh text-ivory flex flex-col">
       <FlowTopBar
         currentUser={currentUser}
         onSignOut={onSignOut}
@@ -1126,7 +1126,7 @@ export default function PostLoginFlow({ currentUser, onSignOut }) {
       )}
 
       {screen === 'live' && (
-        <section className="max-w-7xl mx-auto px-4 sm:px-5 pb-8 sm:pb-10">
+        <section className="w-full flex-1 min-h-0 px-0 pb-0 overflow-hidden">
           <div className="mb-4 rounded-xl border border-white/10 bg-obsidian-light/60 p-4 sm:p-5 md:p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-ivory-muted font-data">Active Match</p>

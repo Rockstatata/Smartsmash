@@ -73,7 +73,7 @@ STAMINA: Dict[str, Callable[[float], float]] = {
 POWER: Dict[str, Callable[[float], float]] = {
     "empty":    lambda x: trapezoidal(x, -1.0, 0.0, 15.0, 35.0),
     "charging": lambda x: triangular(x, 25.0, 55.0, 85.0),
-    "full":     lambda x: trapezoidal(x, 75.0, 95.0, 100.0, 101.0),
+    "full":     lambda x: trapezoidal(x, 65.0, 80.0, 100.0, 101.0),
 }
 
 # Distance to opponent in normalised court units (0..~1.4).

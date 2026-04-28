@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState } from 'react';
-import { Play, Pause } from 'lucide-react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { Play, Pause, Maximize2, Minimize2 } from 'lucide-react';
 import useGameCanvas from '../hooks/useGameCanvas';
 
 /**
@@ -18,7 +18,37 @@ export default function GameArena({
 }) {
   const canvasRef = useRef(null);
   const logRef = useRef(null);
+  const arenaRootRef = useRef(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    const target = arenaRootRef.current;
+    if (!target) return;
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) {
+      const exit = document.exitFullscreen?.bind(document)
+        || document.webkitExitFullscreen?.bind(document);
+      exit?.();
+    } else {
+      const req = target.requestFullscreen?.bind(target)
+        || target.webkitRequestFullscreen?.bind(target);
+      req?.();
+    }
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      setIsFullscreen(Boolean(fsEl) && fsEl === arenaRootRef.current);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
 
   const p1Human = matchSetup?.players?.p1?.agentType === 'human';
   const p2Human = matchSetup?.players?.p2?.agentType === 'human';
@@ -58,7 +88,7 @@ export default function GameArena({
     matchSetup,
     onMatchComplete,
     matchInstanceKey,
-    targetScore: 21,
+    targetScore: 5,
   });
 
   // Auto-scroll action log
@@ -73,6 +103,24 @@ export default function GameArena({
     if (stamina > 30) return '#fbbf24';
     return '#f87171';
   };
+
+  const getStaminaWidth = (stamina) => {
+    const numeric = Number(stamina);
+    if (!Number.isFinite(numeric)) return '0%';
+    return `${Math.max(0, Math.min(100, numeric))}%`;
+  };
+
+  const p1StaminaPct = useMemo(() => {
+    const numeric = Number(hudState.p1Stamina);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.max(0, Math.min(100, numeric)) / 100;
+  }, [hudState.p1Stamina]);
+
+  const p2StaminaPct = useMemo(() => {
+    const numeric = Number(hudState.p2Stamina);
+    if (!Number.isFinite(numeric)) return 0;
+    return Math.max(0, Math.min(100, numeric)) / 100;
+  }, [hudState.p2Stamina]);
 
   const handleToggle = () => {
     if (playState && onPauseRequest) {
@@ -116,12 +164,12 @@ export default function GameArena({
   };
 
   const sectionClass = immersive
-    ? 'relative'
+    ? 'relative flex h-full min-h-0 flex-col'
     : 'relative py-20 sm:py-24 md:py-32 bg-obsidian-light/30';
 
   return (
     <section id="game-arena" className={sectionClass}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+      <div className={immersive ? 'w-full h-full min-h-0 px-0' : 'max-w-7xl mx-auto px-4 sm:px-6'}>
         {tutorialOpen ? (
           <div className="absolute inset-0 z-30 bg-obsidian/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6">
             <div className="w-full max-w-3xl rounded-2xl border border-white/15 bg-obsidian-light/90 shadow-[0_28px_90px_rgba(0,0,0,0.5)]">
@@ -203,7 +251,10 @@ export default function GameArena({
         ) : null}
 
         <div className="relative">
-          <div className="relative bg-obsidian border border-white/5 rounded-2xl overflow-hidden shadow-[0_0_80px_rgba(201,168,76,0.05)]">
+          <div
+            ref={arenaRootRef}
+            className={`relative bg-obsidian border border-white/5 rounded-2xl overflow-hidden shadow-[0_0_80px_rgba(201,168,76,0.05)] ${immersive ? 'w-full h-full min-h-[calc(100svh-12rem)] flex flex-col rounded-none border-0 shadow-none' : ''} ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen flex flex-col rounded-none border-0 shadow-none' : ''}`}
+          >
             {/* Top HUD Bar */}
             <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 border-b border-white/5 bg-obsidian-light/50 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-3 sm:gap-4">
@@ -252,6 +303,17 @@ export default function GameArena({
                 >
                   RESET
                 </button>
+                <button
+                  className="px-3 py-2 bg-white/5 text-ivory-muted text-xs font-data rounded-lg hover:bg-white/10 transition-all flex items-center justify-center gap-1 flex-1 sm:flex-none"
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                >
+                  {isFullscreen ? (
+                    <><Minimize2 className="w-3 h-3" /> EXIT</>
+                  ) : (
+                    <><Maximize2 className="w-3 h-3" /> FULLSCREEN</>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -288,9 +350,10 @@ export default function GameArena({
                     <span className="text-[10px] font-data text-ivory-muted uppercase">Stamina</span>
                     <div className="w-20 sm:w-24 h-1.5 bg-slate rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full transition-all duration-300"
+                        className="h-full rounded-full transition-transform duration-120 ease-linear origin-left"
                         style={{
-                          width: `${hudState.p1Stamina}%`,
+                          width: '100%',
+                          transform: `scaleX(${p1StaminaPct})`,
                           backgroundColor: getStaminaColor(hudState.p1Stamina),
                         }}
                       />
@@ -299,9 +362,10 @@ export default function GameArena({
                   <div className="flex items-center gap-2">
                     <div className="w-20 sm:w-24 h-1.5 bg-slate rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full transition-all duration-300"
+                        className="h-full rounded-full transition-transform duration-120 ease-linear origin-left"
                         style={{
-                          width: `${hudState.p2Stamina}%`,
+                          width: '100%',
+                          transform: `scaleX(${p2StaminaPct})`,
                           backgroundColor: getStaminaColor(hudState.p2Stamina),
                         }}
                       />
@@ -371,5 +435,3 @@ export default function GameArena({
     </section>
   );
 }
-
-

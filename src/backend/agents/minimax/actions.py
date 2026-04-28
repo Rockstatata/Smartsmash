@@ -38,7 +38,7 @@ def get_valid_actions(
     config: Dict[str, Any],
     *,
     include_movement_actions: bool = False,
-+) -> List[str]:
+) -> List[str]:
     """Return the valid action list for the current state."""
     actions: List[str] = list(SHOT_ACTIONS)
     if include_movement_actions:
@@ -65,7 +65,7 @@ def apply_action(
     *,
     actor: str,
     config: Dict[str, Any],
-+) -> Dict[str, Any]:
+) -> Dict[str, Any]:
     """Apply an action to a cloned state for minimax search."""
     next_state = clone_state(state)
     effects = _get_effects(config, action)

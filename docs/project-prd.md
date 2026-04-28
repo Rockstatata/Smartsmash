@@ -75,21 +75,22 @@ The system is **not** intended for general gaming audiences.
 
 ## 5. Game Concept and Rules
 
-### 5.1 Match Rules
+### 5.1 Match Rules (Implemented)
 
 * Two AI players compete
-* 5 points required to win a game
-* Best of 3 games wins the match
+* One game to 21 points (`target_score` = 21 in agents and API)
+* Point winner acts next (`current_turn` becomes `point_winner`)
+* Best-of-3 is planned but not yet implemented in the backend
 
-### 5.2 Turn-Based Abstraction
+### 5.2 Turn-Based Abstraction (Implemented)
 
-* A turn occurs when the shuttle reaches a player
-* AI selects one action per turn
-* Environment simulates the outcome
+* A decision point occurs at every shuttle handoff
+* Each agent returns exactly one action per rally exchange
+* The backend applies a stochastic rally outcome model and updates score, stamina, power, and shuttle context
 
 ---
 
-## 6. Functional Requirements
+## 6. Functional Requirements (Implemented Behavior)
 
 ### 6.1 Game Flow Requirements
 
@@ -109,194 +110,209 @@ Each screen shall be navigable through a centralized UI state controller.
 
 ---
 
-### 6.2 Gameplay Functional Requirements
+### 6.2 Gameplay Functional Requirements (Implemented)
 
 #### FR-1: Player Actions
 
-The system shall support the following actions:
+The system supports the following discrete action vocabulary:
 
-* Move Left
-* Move Right
-* Short Hit
-* Long Hit
-* Jump Smash
-* Special Power Shot (conditional)
+* Shot actions: `SMASH`, `CLEAR`, `DROP_SHOT`, `DRIVE`, `LOB`, `NET_SHOT`, `SPECIAL`
+* Movement actions (optional by agent config): `MOVE_LEFT`, `MOVE_RIGHT`, `STAY`
 
 #### FR-2: Resources
 
-The system shall manage:
+The system manages:
 
-* **Stamina**
+* **Stamina (0-100)**
+  * Decreases by action-specific costs
+  * Restricts `SMASH` and `SPECIAL` via minimum thresholds
+* **Power (0-100)**
+  * Gains per action, enables `SPECIAL` when full
 
-  * Decreases with movement and aggressive actions
-  * Restricts jump smash usage
-* **Power Bar**
+#### FR-3: Special Power Action
 
-  * Fills during rallies
-  * Enables special powers when full
-
-#### FR-3: Special Powers
-
-The system shall support:
-
-* Speed Burst
-* Super Smash
-* Illusion
-* Time Slow
-
-Power activation must be explicitly decided by AI agents.
+`SPECIAL` is implemented as a high-impact shot with power reset. Activation is explicitly chosen by the active AI agent when thresholds permit.
 
 ---
 
-### 6.3 AI Agent Functional Requirements
+### 6.3 AI Agent Implementation (Actual)
 
 #### FR-4: Common AI Interface
 
-All AI agents shall:
+All AI agents:
 
-* Observe the same game state
-* Choose one action per turn
-* Operate independently of visualization
+* Inherit from `BaseAgent`
+* Accept a `GameState`-like snapshot (dict or object)
+* Return one action per call via `select_action` (or `(action, explanation)` via `decide`)
+* Never mutate the authoritative game state
 
-#### FR-5: Minimax Agent
+#### FR-5: Minimax Agent (Depth-Limited with Alpha-Beta)
 
-* Uses depth-limited minimax search
-* Uses heuristic evaluation
-* Assumes optimal opponent behavior
+Implementation highlights:
 
-#### FR-6: Monte Carlo Tree Search Agent
+* Depth-limited minimax with alpha-beta pruning (default depth = 3)
+* Action ordering and max branching (default = 8) configured in `config/agent_config.yaml`
+* Transposition caching with rounded state keys
+* Transition model uses `action_effects` to update `stamina`, `power`, `shuttle_height`, `shuttle_zone`, and lateral position
+* Action constraints enforce minimum stamina for `SMASH` and minimum power for `SPECIAL`
+* Heuristic features (weighted, normalized):
+  * `positional_advantage`, `stamina_advantage`, `power_advantage`
+  * `offensive_opportunity`, `defensive_risk`, `score_pressure`
+  * `rally_state_bias` (attack/defense/neutral)
+* Rally state classification:
+  * attack: `shuttle_height` >= `attack_height` and opponent distance >= `opponent_near`
+  * defense: `shuttle_height` <= `defense_height` or `stamina` <= `low_stamina`
+  * neutral otherwise
 
-* Uses simulation-based search
-* Employs UCT for node selection
-* Uses probabilistic rollouts
+Decision tree shape: a depth-limited search tree with ordered actions at each node, pruned by alpha-beta and bounded by max branching.
 
-#### FR-7: Fuzzy Logic Agent
+#### FR-6: Monte Carlo Tree Search Agent (UCT)
 
-* Uses fuzzy membership functions
-* Uses rule-based inference
-* Makes reactive decisions
+Implementation highlights:
+
+* Four phases: selection (UCT), expansion (one untried action), simulation (rollout), backpropagation
+* Default parameters: 1000 simulations, rollout depth 8, exploration constant 1.414
+* Action validity gated by stamina/power thresholds (`min_smash_stamina`, `min_special_stamina`, `min_special_power`)
+* Internal stochastic rollout model:
+  * Stamina cost and power gain per action
+  * Defender stamina cost and small between-rally recovery
+  * Win probability estimated from shuttle height, zone, stamina, power, and score
+* Action selection: highest visit count at the root (ties broken by win rate)
+* Stochastic by default; reproducible with an explicit RNG seed
+
+Decision tree shape: a growing UCT tree where nodes track visits and value for `player_just_moved`, with selection guided by UCT scores.
+
+#### FR-7: Fuzzy Logic Agent (Mamdani)
+
+Implementation highlights:
+
+* Fuzzifies: `shuttle_height`, `shuttle_lateral`, `shuttle_depth`, `player_stamina`, `opponent_stamina`, `player_power`, `opponent_distance`, `score_diff`
+* Membership functions: triangular/trapezoidal, hand-written for academic transparency
+* Rule base: 22 weighted rules producing intents for aggression, defense, movement, and shot type
+* Inference: AND = min, aggregation = max (Mamdani)
+* Defuzzification: weighted scoring over concrete actions
+* Default fallback action: `DRIVE` when no rule fires strongly
+
+Decision logic shape: a rule firing graph with intent aggregation and weighted action scoring.
 
 ---
 
-### 6.4 Evaluation and Logging Requirements
+### 6.4 Explainability Payloads (Actual)
 
-#### FR-8: Match Evaluation
+* **Minimax** returns: `action`, `score`, `depth`, `nodes_explored`, `cutoffs`, `cache_hits`, `top_actions`, `features`, `contributions`, `reasoning`, `decision_time_ms`
+* **MCTS** returns: `action`, `confidence`, `simulations`, `win_rate`, `tree_depth`, `root_visits`, `action_stats` (`visits`, `win_rate`, `depth`), `reasoning`, `decision_time_ms`
+* **Fuzzy** returns: `action`, `confidence`, `triggered_rules`, `fuzzy_values` (dominant labels), `raw_memberships`, `action_scores`, `decision_time_ms`
 
-The system shall log:
+### 6.5 Match Execution and Persistence (Actual)
 
-* Chosen actions
-* Decision time
-* Stamina usage
-* Power usage
-* Match outcomes
+* `/api/match/start` registers agents and creates the initial `GameState`
+* `/api/match/{id}/decide` returns an action and explanation without mutating the match
+* `/api/match/{id}/step` executes one rally:
+  * Builds a per-side snapshot
+  * Applies action costs/gains and a stochastic rally winner model
+  * Updates `score`, `stamina`, `power`, `shuttle_zone`, `shuttle_height`
+  * Terminates at 21 points
+* Match history and leaderboard are persisted to Supabase when configured; otherwise stored in memory
+* `/api/match/run` is a lightweight fallback that simulates a match via random scoring (not agent-driven)
 
-#### FR-9: Metrics Generation
+### 6.6 Current Results Snapshot (Reference Data)
 
-The system shall compute:
+The API exposes a reference leaderboard when Supabase is not configured. These values are seed data used for UI display, not automated evaluation outputs:
 
-* Win rates
-* Average decision time
-* Resource efficiency
+| Agent   | ELO  | Win rate (%) | Matches | Source |
+| ------- | ---- | ------------ | ------- | ------ |
+| Minimax | 1847 | 72.5         | 48      | API fallback leaderboard |
+| MCTS    | 1792 | 65.8         | 48      | API fallback leaderboard |
+| Fuzzy   | 1685 | 52.1         | 48      | API fallback leaderboard |
+
+Automated metrics in `src/backend/evaluation` are placeholders, and JSON log generation to `logs/` is not yet implemented.
 
 ---
 
-## 7. State Representation Requirements
+## 7. State Representation Requirements (Implemented)
 
 ### 7.1 Game State Definition
 
-Each AI agent shall receive a `GameState` object containing:
+Each AI agent receives a `GameState` snapshot with the following fields (directly or as attributes):
 
-* Player position
-* Opponent position
-* Shuttle height
-* Shuttle court zone
-* Player stamina
-* Opponent stamina
-* Player power level
-* Opponent power level
-* Active power
-* Score difference
-* Current player turn
+* `player_pos` and `opponent_pos` (normalized x/y positions)
+* `shuttle_zone` (1-8) and `shuttle_height` (meters)
+* `stamina` and `power` for the active player
+* `opponent_stamina` and `opponent_power`
+* `score` (`p1`, `p2`)
+* `current_turn` (`p1` or `p2`)
+* `last_action` (optional, populated by `/api/match/{id}/step`)
 
-This representation must be **identical for all agents**.
+The MCTS agent maps this snapshot into an internal `p1_*`/`p2_*` representation for rollouts while preserving identical observable information.
 
 ---
 
-## 8. Non-Functional Requirements
+## 8. Non-Functional Requirements (Actual)
 
 ### 8.1 Performance
 
-* AI decision time should be measurable
-* MCTS simulations should be configurable
-* UI rendering must not block AI computation
+* Decision time is measured and returned per decision (`decision_time_ms`)
+* MCTS simulations and rollout depth are configurable
+* UI rendering is decoupled from backend decision making
 
 ### 8.2 Modularity
 
-* AI agents must be interchangeable
-* Visualization must be decoupled from AI logic
-* Game rules must be centralized
+* AI agents are interchangeable via `make_agent` and the API registry
+* Visualization is decoupled from AI logic (FastAPI provides decisions)
+* Action effects are centralized per agent module (minimax action model, MCTS rollout model)
 
 ### 8.3 Explainability
 
-* AI decisions should be visible to users
-* Decision panels must display reasoning metadata
+* Each agent returns a structured explanation payload
+* UI can display reasoning, top actions, and rule activations
 
 ### 8.4 Academic Compliance
 
-* Only classical AI algorithms allowed
-* No neural networks
-* No reinforcement learning frameworks
+* Only classical AI techniques are implemented
+* No neural networks or reinforcement learning frameworks are used
 
 ---
 
-## 9. System Architecture
+## 9. System Architecture (Actual)
 
 ### 9.1 Layered Architecture
 
 1. **AI Decision Layer**
+  * Implemented in `src/backend/agents/`
+  * Agents consume `GameState` snapshots and produce actions with explanations
 
-   * Implements all AI agents
-   * Consumes abstract game states
-
-2. **Game Simulation Layer**
-
-   * Applies rules
-   * Updates state
-   * Acts as authoritative referee
+2. **Match Execution Layer**
+  * Implemented in `src/backend/api/server.py`
+  * Applies rally outcomes, updates resources, and stores match history
+  * The `environment/Simulator` class is currently a stub and not wired into live matches
 
 3. **Visualization Layer**
+  * Implemented in `src/frontend` (Vite + React)
+  * Requests decisions from the API and renders state updates
 
-   * Renders game state
-   * Displays AI decisions
-   * No influence on logic
-
-AI agents must never directly interact with rendering components.
+AI agents do not interact with rendering components and operate only on state snapshots.
 
 ---
 
-## 10. Implementation Requirements
+## 10. Implementation Requirements (Actual)
 
 ### 10.1 Backend (AI & Simulation)
 
 **Language:** Python
 
-Modules:
+Core modules:
 
-* Game state management
-* Rule enforcement
-* AI algorithms
-* Logging and evaluation
+* AI agents (minimax, MCTS, fuzzy)
+* FastAPI backend bridge with Supabase integration
+* Config loading via YAML
 
 ### 10.2 Frontend (Visualization)
 
 **Technologies:**
 
-* HTML
-* CSS
-* Vanilla JavaScript
-* Canvas or CDN-based Three.js
-
-No frontend framework or build system is required.
+* React + Vite
+* HTML/CSS
+* Canvas-based visualization
 
 ---
 
@@ -333,13 +349,11 @@ The UI shall display:
 
 ## 12. Configuration Requirements
 
-Game parameters shall be configurable via external files:
+Game parameters are configurable via external files:
 
-* Points to win
-* Stamina costs
-* Power thresholds
-* MCTS simulation count
-* Minimax depth
+* `config/agent_config.yaml` (minimax weights, action effects, MCTS simulations)
+* `config/game_config.yaml` (court dimensions)
+* MCTS can also override simulations, rollout_depth, and exploration_constant at runtime
 
 ---
 
@@ -364,6 +378,7 @@ Game parameters shall be configurable via external files:
 | ------------------ | ------------------------ |
 | Complex UI delays  | Modular, screen-based UI |
 | AI too slow        | Depth/simulation limits  |
+| Stochastic variance | Seeded runs for repeatability |
 | Visualization bugs | AI runs independently    |
 | Over-engineering   | Strict scope control     |
 
@@ -373,11 +388,11 @@ Game parameters shall be configurable via external files:
 
 The project will be considered successful if:
 
-* All three AI agents can play complete matches
-* AI behaviors are observably different
-* UI clearly communicates decisions
-* Evaluation metrics can be generated
-* Project aligns with syllabus expectations
+* All three AI agents can play complete games to 21 points via the API
+* AI behaviors are observably different and explainable
+* The UI communicates decisions using the explanation payloads
+* Match history and leaderboard data are available (Supabase or in-memory)
+* The project aligns with syllabus expectations
 
 ---
 
@@ -387,6 +402,7 @@ The project will be considered successful if:
 * Online multiplayer
 * Reinforcement learning agents
 * Advanced physics simulation
+* Best-of-3 match format and full evaluation/logging pipeline
 
 ---
 

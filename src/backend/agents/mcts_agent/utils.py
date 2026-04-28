@@ -16,7 +16,7 @@ SHOT_ACTIONS: Tuple[str, ...] = (
 MOVEMENT_ACTIONS: Tuple[str, ...] = ("MOVE_LEFT", "MOVE_RIGHT", "STAY")
 ALL_ACTIONS: Tuple[str, ...] = SHOT_ACTIONS + MOVEMENT_ACTIONS
 
-DEFAULT_TARGET_SCORE = 21
+DEFAULT_TARGET_SCORE = 5
 
 
 def clamp(x: float, lo: float, hi: float) -> float:

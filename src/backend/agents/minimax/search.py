@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .actions import get_valid_actions, apply_action
-from .heuristic import evaluate_state
+from .heuristic import evaluate_state, extract_features
 from .state_utils import state_key
 
 
@@ -39,6 +39,28 @@ def _is_terminal(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
 		return int(score.get("p1", 0)) >= points_to_win or int(score.get("p2", 0)) >= points_to_win
 	except Exception:
 		return False
+
+
+def _root_special_bonus(state: Dict[str, Any], action: str, config: Dict[str, Any]) -> float:
+	"""Bias SPECIAL at root when tactical context supports using it."""
+	if action != "SPECIAL":
+		return 0.0
+	policy = _get_config(config, "special_policy", {})
+	if not isinstance(policy, dict):
+		return 0.0
+
+	features = extract_features(state, config)
+	min_opp = float(policy.get("min_offensive_opportunity", 0.42))
+	min_pressure = float(policy.get("min_score_pressure", -0.25))
+	offensive = float(features.get("offensive_opportunity", 0.0))
+	pressure = float(features.get("score_pressure", 0.0))
+	power_norm = float(features.get("power", 0.0))
+	if offensive < min_opp or pressure < min_pressure:
+		return 0.0
+
+	base = float(policy.get("base_bonus", 0.08))
+	power_scale = float(policy.get("power_scale_bonus", 0.12))
+	return max(0.0, base + power_scale * power_norm)
 
 
 def minimax_search(
@@ -171,6 +193,7 @@ def minimax_root(
 			beta=beta,
 			cache=cache,
 		)
+		score += _root_special_bonus(state, action, config)
 		scores[action] = score
 		if score > best_score:
 			best_score = score

@@ -173,6 +173,27 @@ RULES: List[Rule] = [
         weight=1.1,
         description="Full power vs a tired opponent: cash it in.",
     ),
+    Rule(
+        name="R10b_power_full_balanced_special",
+        antecedents=[
+            ("player_power", "full"),
+            ("score_diff", "balanced"),
+        ],
+        consequents=[("shot_type", "special", 0.72)],
+        weight=0.95,
+        description="At parity with full power, use special at selective windows.",
+    ),
+    Rule(
+        name="R10c_power_charging_losing_special_probe",
+        antecedents=[
+            ("player_power", "charging"),
+            ("score_diff", "losing"),
+            ("shuttle_height", "high"),
+        ],
+        consequents=[("shot_type", "special", 0.58), ("aggression", "high", 0.4)],
+        weight=0.9,
+        description="When trailing and power is charging, probe with occasional special attempts.",
+    ),
 
     # --- Movement intents ----------------------------------------------------
     Rule(

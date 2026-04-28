@@ -218,6 +218,13 @@ export function stepMatch(matchId) {
   return request(`/match/${matchId}/step`, { method: 'POST' });
 }
 
+export function decideAction(matchId, snapshot) {
+  return request(`/match/${matchId}/decide`, {
+    method: 'POST',
+    body: JSON.stringify(snapshot),
+  });
+}
+
 export function getMatchState(matchId) {
   return request(`/match/${matchId}/state`);
 }
@@ -244,6 +251,13 @@ export function getLeaderboard() {
 export function getMatchHistory(limit) {
   const query = limit ? `?limit=${limit}` : '';
   return request(`/history${query}`);
+}
+
+export function submitMatchComplete(summary) {
+  return request('/match/complete', {
+    method: 'POST',
+    body: JSON.stringify(summary),
+  });
 }
 
 export async function healthCheck() {

@@ -32,6 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.game_state import GameState
+from agents import AGENT_TYPES, make_agent
 
 try:
     import yaml
@@ -76,6 +77,34 @@ def _model_dump(model: BaseModel) -> Dict[str, Any]:
 class MatchRequest(BaseModel):
     agent1: str
     agent2: str
+
+
+class MatchCompleteRequest(BaseModel):
+    winner: str
+    winnerName: Optional[str] = None
+    score: Dict[str, int]
+    rallyCount: int = 0
+    durationSec: int = 0
+    setupSnapshot: Optional[Dict[str, Any]] = None
+
+
+class DecideRequest(BaseModel):
+    """Frontend snapshot used by the live canvas to ask one agent for one action.
+
+    All fields are optional; the bridge fills in safe defaults. Coordinates
+    and zones use the same conventions the canvas already produces.
+    """
+
+    player: str = Field(default="p1", description="Which side to decide for: 'p1' or 'p2'.")
+    player_pos: Optional[Dict[str, float]] = None
+    opponent_pos: Optional[Dict[str, float]] = None
+    shuttle_zone: Optional[int] = None
+    shuttle_height: Optional[float] = None
+    stamina: Optional[float] = None
+    opponent_stamina: Optional[float] = None
+    power: Optional[float] = None
+    opponent_power: Optional[float] = None
+    score: Optional[Dict[str, int]] = None
 
 
 class MatchState(BaseModel):
@@ -413,6 +442,88 @@ def _persist_match_history(record: Dict[str, Any]) -> None:
     except Exception:
         # Keep API resilient even if db table does not exist yet.
         pass
+
+
+def _persist_leaderboard_row(row: Dict[str, Any]) -> None:
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("leaderboard").upsert(
+            {
+                "name": row.get("name", "Unknown"),
+                "elo": float(row.get("elo", 1500)),
+                "winrate": float(row.get("winrate", 0)),
+                "points": int(row.get("points", 0)),
+                "matches": int(row.get("matches", 0)),
+                "color": row.get("color", "#4A9EFF"),
+                "description": row.get("description", ""),
+            },
+            on_conflict="name",
+        ).execute()
+    except Exception:
+        pass
+
+
+def _find_or_create_leaderboard_row(agent_name: str) -> Dict[str, Any]:
+    for row in leaderboard_data:
+        if str(row.get("name", "")).strip().lower() == agent_name.strip().lower():
+            return row
+
+    new_row = {
+        "rank": len(leaderboard_data) + 1,
+        "name": agent_name,
+        "elo": 1500.0,
+        "winrate": 0.0,
+        "points": 0,
+        "matches": 0,
+        "color": "#4A9EFF",
+        "description": "Live arena competitor",
+    }
+    leaderboard_data.append(new_row)
+    return new_row
+
+
+def _recompute_ranks() -> None:
+    leaderboard_data.sort(key=lambda row: float(row.get("elo", 0)), reverse=True)
+    for idx, row in enumerate(leaderboard_data, start=1):
+        row["rank"] = idx
+
+
+def _apply_match_result_to_leaderboard(agent1_name: str, agent2_name: str, winner_name: str) -> None:
+    a = _find_or_create_leaderboard_row(agent1_name)
+    b = _find_or_create_leaderboard_row(agent2_name)
+
+    ra = float(a.get("elo", 1500))
+    rb = float(b.get("elo", 1500))
+    ea = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+    eb = 1.0 - ea
+
+    a_win = winner_name.strip().lower() == agent1_name.strip().lower()
+    sa = 1.0 if a_win else 0.0
+    sb = 0.0 if a_win else 1.0
+    k = 24.0
+
+    a["elo"] = round(ra + k * (sa - ea), 2)
+    b["elo"] = round(rb + k * (sb - eb), 2)
+
+    a["matches"] = int(a.get("matches", 0)) + 1
+    b["matches"] = int(b.get("matches", 0)) + 1
+
+    a_wins = round(float(a.get("winrate", 0)) * max(0, a["matches"] - 1) / 100.0)
+    b_wins = round(float(b.get("winrate", 0)) * max(0, b["matches"] - 1) / 100.0)
+    if a_win:
+        a_wins += 1
+    else:
+        b_wins += 1
+
+    a["winrate"] = round((a_wins / max(1, a["matches"])) * 100.0, 1)
+    b["winrate"] = round((b_wins / max(1, b["matches"])) * 100.0, 1)
+    a["points"] = int(a_wins * 50)
+    b["points"] = int(b_wins * 50)
+
+    _persist_leaderboard_row(a)
+    _persist_leaderboard_row(b)
+    _recompute_ranks()
 
 
 def _derive_username(
@@ -801,74 +912,240 @@ async def get_agent(agent_type: str) -> Dict[str, Any]:
     return _model_dump(AGENT_REGISTRY[agent_type])
 
 
+def _resolve_agent_type(name: str) -> str:
+    """Map registry keys / human names onto factory keys."""
+    key = (name or "").strip().lower()
+    if key in AGENT_TYPES:
+        return key
+    if key in AGENT_REGISTRY:
+        return AGENT_REGISTRY[key].type
+    raise HTTPException(status_code=400, detail=f"Unknown agent: {name!r}")
+
+
+def _build_decide_state(payload: DecideRequest, match: Optional[Dict[str, Any]] = None) -> GameState:
+    state = GameState()
+    state.player_pos = dict(payload.player_pos or {"x": 0.25, "y": 0.5})
+    state.opponent_pos = dict(payload.opponent_pos or {"x": 0.75, "y": 0.5})
+    state.shuttle_zone = int(payload.shuttle_zone) if payload.shuttle_zone is not None else 4
+    state.shuttle_height = float(payload.shuttle_height) if payload.shuttle_height is not None else 1.5
+    state.stamina = float(payload.stamina) if payload.stamina is not None else 100.0
+    state.power = float(payload.power) if payload.power is not None else 0.0
+    setattr(state, "opponent_stamina", float(payload.opponent_stamina) if payload.opponent_stamina is not None else 100.0)
+    setattr(state, "opponent_power", float(payload.opponent_power) if payload.opponent_power is not None else 0.0)
+    if payload.score:
+        state.score = {"p1": int(payload.score.get("p1", 0)), "p2": int(payload.score.get("p2", 0))}
+    elif match is not None:
+        state.score = dict(match["state"].score or {"p1": 0, "p2": 0})
+    else:
+        state.score = {"p1": 0, "p2": 0}
+    setattr(state, "current_turn", payload.player or "p1")
+    return state
+
+
 @app.post("/api/match/start")
 async def start_match(request: MatchRequest) -> Dict[str, Any]:
-    if request.agent1 not in AGENT_REGISTRY:
-        raise HTTPException(status_code=400, detail=f"Unknown agent: {request.agent1}")
-    if request.agent2 not in AGENT_REGISTRY:
-        raise HTTPException(status_code=400, detail=f"Unknown agent: {request.agent2}")
+    agent1_type = _resolve_agent_type(request.agent1)
+    agent2_type = _resolve_agent_type(request.agent2)
 
     match_id = str(uuid.uuid4())[:8]
     game_state = create_initial_state()
 
+    try:
+        agent1 = make_agent(agent1_type, player_key="p1")
+        agent2 = make_agent(agent2_type, player_key="p2")
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=500, detail=f"Failed to instantiate agents: {exc}") from exc
+
     active_matches[match_id] = {
         "id": match_id,
-        "agent1": request.agent1,
-        "agent2": request.agent2,
+        "agent1": agent1_type,
+        "agent2": agent2_type,
+        "agents": {"p1": agent1, "p2": agent2},
         "state": game_state,
         "rally": 0,
         "started_at": time.time(),
+        "current_turn": "p1",
+        "p1_stamina": 100.0,
+        "p2_stamina": 100.0,
+        "p1_power": 0.0,
+        "p2_power": 0.0,
     }
 
     return state_to_dict(game_state, match_id)
 
 
+@app.post("/api/match/{match_id}/decide")
+async def decide_action(match_id: str, payload: DecideRequest) -> Dict[str, Any]:
+    """Ask the agent on side ``payload.player`` to pick one action.
+
+    The frontend canvas calls this on every shuttle hand-off to get a
+    real Minimax / MCTS / Fuzzy decision instead of a local heuristic.
+    """
+    if match_id not in active_matches:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    match = active_matches[match_id]
+    side = (payload.player or "p1").strip().lower()
+    if side not in {"p1", "p2"}:
+        raise HTTPException(status_code=400, detail="player must be 'p1' or 'p2'")
+
+    agent = match.get("agents", {}).get(side)
+    if agent is None:
+        raise HTTPException(status_code=500, detail=f"No agent registered for {side}")
+
+    state = _build_decide_state(payload, match)
+
+    t0 = time.perf_counter()
+    try:
+        result = agent.decide(state)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=500, detail=f"Agent decision failed: {exc}") from exc
+
+    if isinstance(result, tuple) and len(result) == 2:
+        action, explanation = result
+    else:
+        action, explanation = str(result), {}
+
+    decision_time_ms = round((time.perf_counter() - t0) * 1000.0, 3)
+    if isinstance(explanation, dict) and "decision_time_ms" not in explanation:
+        explanation = {**explanation, "decision_time_ms": decision_time_ms}
+
+    return {
+        "match_id": match_id,
+        "player": side,
+        "agent": match["agents"][side].name if hasattr(match["agents"][side], "name") else side,
+        "agent_type": match["agent1"] if side == "p1" else match["agent2"],
+        "action": str(action),
+        "decision_time_ms": decision_time_ms,
+        "explanation": explanation,
+    }
+
+
+def _build_rally_state(match: Dict[str, Any], current_turn: str) -> GameState:
+    """Project the live match dict into a GameState for the active agent."""
+    base = match["state"]
+    state = GameState()
+
+    if current_turn == "p1":
+        state.player_pos = dict(base.player_pos or {"x": 0.25, "y": 0.5})
+        state.opponent_pos = dict(base.opponent_pos or {"x": 0.75, "y": 0.5})
+    else:
+        state.player_pos = dict(base.opponent_pos or {"x": 0.75, "y": 0.5})
+        state.opponent_pos = dict(base.player_pos or {"x": 0.25, "y": 0.5})
+
+    state.shuttle_zone = base.shuttle_zone or 4
+    state.shuttle_height = base.shuttle_height if base.shuttle_height is not None else 1.5
+
+    p1_stamina = match.get("p1_stamina", 100.0)
+    p2_stamina = match.get("p2_stamina", 100.0)
+    p1_power = match.get("p1_power", 0.0)
+    p2_power = match.get("p2_power", 0.0)
+
+    if current_turn == "p1":
+        state.stamina = p1_stamina
+        state.power = p1_power
+        setattr(state, "opponent_stamina", p2_stamina)
+        setattr(state, "opponent_power", p2_power)
+    else:
+        state.stamina = p2_stamina
+        state.power = p2_power
+        setattr(state, "opponent_stamina", p1_stamina)
+        setattr(state, "opponent_power", p1_power)
+
+    state.score = dict(base.score or {"p1": 0, "p2": 0})
+    setattr(state, "current_turn", current_turn)
+    return state
+
+
+def _apply_rally_outcome(match: Dict[str, Any], actor: str, action: str) -> str:
+    """Apply a single rally exchange to the live match dict and return point winner."""
+    defender = "p2" if actor == "p1" else "p1"
+    state = match["state"]
+
+    cost = {
+        "SMASH": 12.0, "SPECIAL": 10.0, "CLEAR": 6.0, "LOB": 6.0,
+        "DRIVE": 7.0, "DROP_SHOT": 5.0, "NET_SHOT": 4.0,
+        "MOVE_LEFT": 2.0, "MOVE_RIGHT": 2.0, "STAY": 1.0,
+    }.get(action, 5.0)
+    gain = {
+        "SMASH": 8.0, "SPECIAL": -100.0, "CLEAR": 5.0, "LOB": 4.0,
+        "DRIVE": 4.0, "DROP_SHOT": 3.0, "NET_SHOT": 3.0,
+    }.get(action, 2.0)
+
+    match[f"{actor}_stamina"] = max(0.0, match.get(f"{actor}_stamina", 100.0) - cost)
+    match[f"{defender}_stamina"] = min(100.0, match.get(f"{defender}_stamina", 100.0) + 1.5)
+    match[f"{actor}_power"] = max(0.0, min(100.0, match.get(f"{actor}_power", 0.0) + gain))
+
+    p_actor = 0.5
+    if action == "SMASH":
+        p_actor = 0.58 + 0.0015 * match.get(f"{actor}_stamina", 100.0)
+    elif action == "SPECIAL":
+        p_actor = 0.65
+    elif action in ("DROP_SHOT", "NET_SHOT"):
+        p_actor = 0.52
+    elif action in ("CLEAR", "LOB"):
+        p_actor = 0.48
+    elif action == "DRIVE":
+        p_actor = 0.50
+    p_actor = max(0.05, min(0.95, p_actor))
+
+    winner = actor if random.random() < p_actor else defender
+    state.score[winner] = state.score.get(winner, 0) + 1
+
+    state.shuttle_zone = random.randint(1, 8)
+    state.shuttle_height = random.uniform(0.8, 3.0)
+    return winner
+
+
 @app.post("/api/match/{match_id}/step")
 async def step_match(match_id: str) -> Dict[str, Any]:
+    """Run one rally exchange via the registered agents and return the new state."""
     if match_id not in active_matches:
         raise HTTPException(status_code=404, detail="Match not found")
 
     match = active_matches[match_id]
     match["rally"] += 1
+    current_turn = match.get("current_turn", "p1")
     state = match["state"]
 
-    if state.player_pos:
-        state.player_pos["x"] = max(0.05, min(0.45, state.player_pos["x"] + random.uniform(-0.05, 0.05)))
-        state.player_pos["y"] = max(0.1, min(0.9, state.player_pos["y"] + random.uniform(-0.05, 0.05)))
+    agent = match["agents"][current_turn]
+    snapshot = _build_rally_state(match, current_turn)
 
-    if state.opponent_pos:
-        state.opponent_pos["x"] = max(0.55, min(0.95, state.opponent_pos["x"] + random.uniform(-0.05, 0.05)))
-        state.opponent_pos["y"] = max(0.1, min(0.9, state.opponent_pos["y"] + random.uniform(-0.05, 0.05)))
+    t0 = time.perf_counter()
+    try:
+        result = agent.decide(snapshot)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=500, detail=f"Agent step failed: {exc}") from exc
 
-    state.shuttle_zone = random.randint(1, 8)
+    if isinstance(result, tuple) and len(result) == 2:
+        action, explanation = result
+    else:
+        action, explanation = str(result), {}
+    decision_time_ms = round((time.perf_counter() - t0) * 1000.0, 3)
 
-    if state.stamina is not None:
-        state.stamina = max(0, state.stamina - random.uniform(1, 5))
+    point_winner = _apply_rally_outcome(match, current_turn, str(action))
+    match["current_turn"] = point_winner
 
-    actions = ["SMASH", "CLEAR", "DROP_SHOT", "DRIVE", "LOB", "NET_SHOT"]
-    last_action = random.choice(actions)
+    is_terminal = state.score.get("p1", 0) >= 5 or state.score.get("p2", 0) >= 5
 
-    if match["rally"] % 10 == 0:
-        if random.random() > 0.5:
-            state.score["p1"] += 1
-        else:
-            state.score["p2"] += 1
-
-    is_terminal = state.score.get("p1", 0) >= 21 or state.score.get("p2", 0) >= 21
-
-    result = state_to_dict(state, match_id, match["rally"])
-    result["last_action"] = last_action
-    result["decision_time_ms"] = round(random.uniform(2, 150), 1)
-    result["is_terminal"] = is_terminal
+    result_payload = state_to_dict(state, match_id, match["rally"])
+    result_payload["last_action"] = str(action)
+    result_payload["decision_time_ms"] = decision_time_ms
+    result_payload["is_terminal"] = is_terminal
+    result_payload["current_turn"] = match["current_turn"]
+    result_payload["actor"] = current_turn
+    result_payload["point_winner"] = point_winner
+    result_payload["explanation"] = explanation if isinstance(explanation, dict) else {}
 
     if is_terminal:
-        winner = match["agent1"] if state.score["p1"] > state.score["p2"] else match["agent2"]
+        winner_side = "p1" if state.score["p1"] > state.score["p2"] else "p2"
+        winner_agent = match["agent1"] if winner_side == "p1" else match["agent2"]
         history_row = {
             "id": match_id,
             "agent1": match["agent1"],
             "agent2": match["agent2"],
             "score": state.score,
-            "winner": winner,
+            "winner": winner_agent,
             "rally_count": match["rally"],
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -876,7 +1153,7 @@ async def step_match(match_id: str) -> Dict[str, Any]:
         _persist_match_history(history_row)
         del active_matches[match_id]
 
-    return result
+    return result_payload
 
 
 @app.get("/api/match/{match_id}/state")
@@ -895,7 +1172,7 @@ async def run_full_match(request: MatchRequest) -> Dict[str, Any]:
     score = {"p1": 0, "p2": 0}
     rally_count = 0
 
-    while score["p1"] < 21 and score["p2"] < 21:
+    while score["p1"] < 5 and score["p2"] < 5:
         rally_count += 1
         if random.random() > 0.5:
             score["p1"] += 1
@@ -915,7 +1192,47 @@ async def run_full_match(request: MatchRequest) -> Dict[str, Any]:
 
     match_history.insert(0, record)
     _persist_match_history(record)
+    _apply_match_result_to_leaderboard(request.agent1, request.agent2, winner)
     return record
+
+
+@app.post("/api/match/complete")
+async def complete_match(payload: MatchCompleteRequest) -> Dict[str, Any]:
+    setup = payload.setupSnapshot or {}
+    p1_name = (
+        setup.get("players", {})
+        .get("p1", {})
+        .get("name")
+        or setup.get("players", {}).get("p1", {}).get("agentType")
+        or "Player One"
+    )
+    p2_name = (
+        setup.get("players", {})
+        .get("p2", {})
+        .get("name")
+        or setup.get("players", {}).get("p2", {}).get("agentType")
+        or "Player Two"
+    )
+
+    winner_name = payload.winnerName or (p1_name if payload.winner == "p1" else p2_name)
+    record = {
+        "id": str(uuid.uuid4())[:8],
+        "agent1": p1_name,
+        "agent2": p2_name,
+        "score": payload.score,
+        "winner": winner_name,
+        "rally_count": payload.rallyCount,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    match_history.insert(0, record)
+    _persist_match_history(record)
+    _apply_match_result_to_leaderboard(p1_name, p2_name, winner_name)
+    return {
+        "ok": True,
+        "record": record,
+        "leaderboard": leaderboard_data,
+    }
 
 
 @app.get("/api/leaderboard")
@@ -930,7 +1247,9 @@ async def get_leaderboard() -> List[Dict[str, Any]]:
 async def get_history(limit: int = 20) -> List[Dict[str, Any]]:
     safe_limit = max(1, min(limit, 100))
     db_rows = _fetch_history_from_db(safe_limit)
-    if db_rows is not None:
+    # If DB is reachable but currently empty, fall back to in-memory history
+    # so the frontend still shows freshly simulated matches.
+    if db_rows is not None and len(db_rows) > 0:
         return db_rows
     return match_history[:safe_limit]
 

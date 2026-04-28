@@ -39,7 +39,7 @@ def format_explanation(
     contributions: Dict[str, float],
     top_actions: List[Dict[str, Any]],
     decision_time_ms: float,
-+) -> Dict[str, Any]:
+) -> Dict[str, Any]:
     """Return a structured explanation payload for UI and logging."""
     return {
         "action": action,

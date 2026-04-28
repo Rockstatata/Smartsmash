@@ -17,7 +17,7 @@ def is_terminal(state: Dict) -> bool:
     if bool(state.get("is_terminal")):
         return True
     score = state.get("score") or {}
-    target = int(state.get("target_score") or 21)
+    target = int(state.get("target_score") or 5)
     return int(score.get("p1", 0)) >= target or int(score.get("p2", 0)) >= target
 
 
@@ -87,9 +87,9 @@ def estimate_point_win_probability(
         p -= 0.02 if winning else 0.0
 
     elif action == "SPECIAL":
-        p = 0.50
+        p = 0.56
         p += 0.18 * clamp(height_norm - 0.2, 0.0, 1.0)
-        p += 0.26 * power_norm
+        p += 0.30 * power_norm
         p += 0.08 * (1.0 - opp_stamina_norm)
         p -= 0.18 * (1.0 - stamina_norm)
 
@@ -258,7 +258,7 @@ def transition(
     next_state["p1_stamina"] = clamp(float(next_state.get("p1_stamina", 100.0)) + recovery, 0.0, 100.0)
     next_state["p2_stamina"] = clamp(float(next_state.get("p2_stamina", 100.0)) + recovery, 0.0, 100.0)
 
-    target = int(next_state.get("target_score") or 21)
+    target = int(next_state.get("target_score") or 5)
     next_state["is_terminal"] = (
         int(score.get("p1", 0)) >= target or int(score.get("p2", 0)) >= target
     )
@@ -280,15 +280,26 @@ def rollout_policy(
     player = str(state.get("current_turn", "p1"))
     stamina = float(state.get(f"{player}_stamina", 100.0) or 100.0)
     power = float(state.get(f"{player}_power", 0.0) or 0.0)
+    opp = other_player(player)
+    opp_stamina = float(state.get(f"{opp}_stamina", 100.0) or 100.0)
     height = float(state.get("shuttle_height", 1.5) or 1.5)
     zone = int(state.get("shuttle_zone", 4) or 4)
     front, back, _ = _zone_flags(zone)
 
+    diff = score_diff(state, player)
+    losing = diff < 0
+
     weights: list[float] = []
     for action in valid_actions:
         w = 1.0
-        if action == "SPECIAL" and power >= 90:
-            w = 2.2
+        if action == "SPECIAL" and power >= 60:
+            w = 3.0
+            if losing:
+                w += 1.2
+            if opp_stamina <= 45:
+                w += 1.0
+            if height >= 1.5:
+                w += 0.6
         elif action == "SMASH" and stamina >= 60 and height >= 2.0:
             w = 2.0
         elif action in ("DROP_SHOT", "NET_SHOT") and front and stamina < 55:
